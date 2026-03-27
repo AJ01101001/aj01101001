@@ -16,14 +16,14 @@ SECTOR_ETFS = {
     'XLE': 'Energy',
     'XLK': 'Technology',
     'XLI': 'Industrials',
-    'XLC': 'Comm Services',
+    'VOX': 'Comm Services',
     'XLU': 'Utilities',
     'XLF': 'Financials',
     'XLY': 'Cons Discretionary',
     'XLV': 'Health Care',
     'XLB': 'Materials',
     'XLP': 'Cons Staples',
-    'XLRE': 'Real Estate',
+    'IYR': 'Real Estate',
 }
 
 # hedges for long-term debt cycle layer
@@ -77,11 +77,11 @@ if USE_SYNTHETIC:
         'XLI': [1.1, 1.3, 1.0, 0.5],   # industrials: mid cycle
         'XLE': [0.6, 0.8, 1.5, 0.7],   # energy: late cycle
         'XLB': [0.8, 1.0, 1.3, 0.6],   # materials: late cycle
-        'XLC': [1.0, 1.2, 0.9, 0.5],   # comm: mid-ish
+        'VOX': [1.0, 1.2, 0.9, 0.5],   # comm: mid-ish
         'XLU': [0.4, 0.5, 0.8, 1.3],   # utilities: recession
         'XLP': [0.5, 0.6, 0.7, 1.2],   # staples: recession
         'XLV': [0.7, 0.8, 0.9, 1.4],   # healthcare: recession
-        'XLRE': [1.2, 1.0, 0.5, 0.4],  # real estate: early, rate sensitive
+        'IYR': [1.2, 1.0, 0.5, 0.4],   # real estate: early, rate sensitive
     }
     hedge_betas = {
         'GLD': [0.3, 0.4, 0.8, 1.5],
