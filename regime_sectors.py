@@ -355,6 +355,7 @@ if hedge_tickers:
     for regime in regime_order:
         mask = macro['regime'] == regime
         regime_returns_h = monthly_returns.loc[mask]
+        spy_ret_h = regime_returns_h['SPY'] if 'SPY' in regime_returns_h.columns else None
         for ticker in hedge_tickers:
             if ticker not in regime_returns_h.columns:
                 continue
@@ -362,11 +363,13 @@ if hedge_tickers:
             if len(r) < 2:
                 continue
             ann_ret = r.mean() * 12
+            excess = (r.mean() - spy_ret_h.mean()) * 12 if spy_ret_h is not None else 0
             hedge_results.append({
                 'Regime': regime,
                 'Ticker': ticker,
                 'Asset': HEDGE_ETFS[ticker],
                 'Ann Return': ann_ret,
+                'Excess vs SPY': excess,
             })
 
     hedge_df = pd.DataFrame(hedge_results)
@@ -374,6 +377,12 @@ if hedge_tickers:
     pivot_hedge = pivot_hedge.reindex(columns=regime_order)
     pivot_hedge.insert(0, 'Asset', [HEDGE_ETFS.get(t, t) for t in pivot_hedge.index])
     print(pivot_hedge.to_string(float_format=lambda x: f"{x:.1%}" if isinstance(x, float) else x))
+
+    print("\n=== Hedge Excess Return vs SPY by Regime ===")
+    pivot_hedge_ex = hedge_df.pivot(index='Ticker', columns='Regime', values='Excess vs SPY')
+    pivot_hedge_ex = pivot_hedge_ex.reindex(columns=regime_order)
+    pivot_hedge_ex.insert(0, 'Asset', [HEDGE_ETFS.get(t, t) for t in pivot_hedge_ex.index])
+    print(pivot_hedge_ex.to_string(float_format=lambda x: f"{x:+.1%}" if isinstance(x, float) else x))
     print()
 
 # =============================================================
