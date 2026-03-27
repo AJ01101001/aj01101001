@@ -1,7 +1,6 @@
 import pandas as pd
 import numpy as np
 import yfinance as yf
-from pandas_datareader import data as pdr
 from statsmodels.stats.diagnostic import acorr_ljungbox
 from statsmodels.tsa.stattools import acf, pacf
 from scipy import stats
@@ -21,7 +20,13 @@ vti = vti.squeeze()
 vti.name = 'VTI'
 
 # FRED 3-month T-bill (secondary market, daily, annualized %)
-tbill = pdr.get_data_fred('DTB3', start='2001-01-01', end='2026-03-27')
+fred_url = (
+    'https://fred.stlouisfed.org/graph/fredgraph.csv'
+    '?id=DTB3&cosd=2001-01-01&coed=2026-03-27'
+)
+tbill = pd.read_csv(fred_url, index_col=0, parse_dates=True)
+tbill.columns = ['DTB3']
+tbill['DTB3'] = pd.to_numeric(tbill['DTB3'], errors='coerce')
 tbill = tbill['DTB3'].dropna()
 tbill_daily = tbill / 100 / 252  # approx daily yield
 
