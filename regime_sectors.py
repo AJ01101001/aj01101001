@@ -38,71 +38,60 @@ ALL_TICKERS = list(SECTOR_ETFS.keys()) + list(HEDGE_ETFS.keys()) + ['SPY']
 if USE_SYNTHETIC:
     print("** Using synthetic data (offline mode) **\n")
     rng = np.random.default_rng(42)
-    dates = pd.date_range('2002-01-01', '2026-03-27', freq='MS')  # monthly
+    dates = pd.date_range('2002-01-01', '2026-03-27', freq='MS')
 
-    # synthetic recession probability (create ~5 recession episodes)
-    rec_prob = np.zeros(len(dates))
-    # approximate NBER recessions: 2001, 2008-09, 2020, plus two mild ones
-    for start_idx, duration in [(0, 12), (72, 20), (100, 6), (180, 4), (218, 3)]:
-        end_idx = min(start_idx + duration, len(dates))
-        rec_prob[start_idx:end_idx] = rng.uniform(0.6, 0.95, end_idx - start_idx)
-    # add noise
-    rec_prob += rng.normal(0, 0.05, len(dates))
-    rec_prob = np.clip(rec_prob, 0, 1)
-    rec_prob_series = pd.Series(rec_prob, index=dates, name='RECPROUSM156N')
+    # synthetic ISM PMI: oscillates around 50 with business cycle
+    ism = 52 + 8 * np.sin(np.linspace(0, 5 * np.pi, len(dates)))
+    ism += rng.normal(0, 2, len(dates))
+    ism = np.clip(ism, 30, 70)
+    ism_series = pd.Series(ism, index=dates, name='ISM')
 
-    # synthetic yield curve (10Y-2Y spread)
-    # tends to invert before recessions, steepen after
-    yc = np.ones(len(dates)) * 1.5
-    for start_idx, duration in [(0, 12), (72, 20), (100, 6), (180, 4), (218, 3)]:
-        # invert before recession
-        pre_start = max(0, start_idx - 12)
-        yc[pre_start:start_idx] = np.linspace(1.0, -0.5, start_idx - pre_start)
-        # stay inverted/flat during
-        end_idx = min(start_idx + duration, len(dates))
-        yc[start_idx:end_idx] = rng.uniform(-0.5, 0.3, end_idx - start_idx)
-        # steepen after
-        post_end = min(end_idx + 12, len(dates))
-        yc[end_idx:post_end] = np.linspace(0.5, 2.5, post_end - end_idx)
-    yc += rng.normal(0, 0.15, len(dates))
-    yc_series = pd.Series(yc, index=dates, name='T10Y2Y')
+    # synthetic CPI YoY: cycles with lag relative to growth
+    cpi_yoy = 2.5 + 2 * np.sin(np.linspace(0.5, 5 * np.pi + 0.5, len(dates)))
+    cpi_yoy += rng.normal(0, 0.3, len(dates))
+    cpi_yoy = np.clip(cpi_yoy, -1, 9)
+    cpi_series = pd.Series(cpi_yoy, index=dates, name='CPI_YOY')
 
     # synthetic sector returns with regime-dependent behavior
-    # define sector betas to each regime
-    # rows = sectors, cols = [early_exp, mid_exp, late_exp, recession]
+    # regimes: [Recovery, Expansion, Slowdown, Contraction]
     regime_betas = {
-        'XLY': [1.5, 1.1, 0.7, 0.5],   # cons disc: early cycle winner
-        'XLF': [1.4, 1.0, 0.6, 0.3],   # financials: early cycle
-        'XLK': [1.0, 1.4, 1.2, 0.6],   # tech: mid cycle
-        'XLI': [1.1, 1.3, 1.0, 0.5],   # industrials: mid cycle
-        'XLE': [0.6, 0.8, 1.5, 0.7],   # energy: late cycle
-        'XLB': [0.8, 1.0, 1.3, 0.6],   # materials: late cycle
-        'VOX': [1.0, 1.2, 0.9, 0.5],   # comm: mid-ish
-        'XLU': [0.4, 0.5, 0.8, 1.3],   # utilities: recession
-        'XLP': [0.5, 0.6, 0.7, 1.2],   # staples: recession
-        'XLV': [0.7, 0.8, 0.9, 1.4],   # healthcare: recession
-        'IYR': [1.2, 1.0, 0.5, 0.4],   # real estate: early, rate sensitive
+        'XLY': [1.5, 1.1, 0.5, 0.7],   # cons disc: recovery winner
+        'XLF': [1.4, 1.0, 0.4, 0.5],   # financials: recovery
+        'XLK': [1.2, 1.4, 0.8, 0.6],   # tech: recovery + expansion
+        'XLI': [1.3, 1.3, 0.6, 0.5],   # industrials: expansion
+        'XLE': [0.6, 1.2, 1.5, 0.7],   # energy: slowdown (inflation)
+        'XLB': [0.8, 1.2, 1.3, 0.6],   # materials: slowdown
+        'VOX': [1.0, 1.2, 0.7, 0.5],   # comm: expansion
+        'XLU': [0.5, 0.5, 0.9, 1.3],   # utilities: contraction
+        'XLP': [0.6, 0.6, 0.8, 1.2],   # staples: contraction
+        'XLV': [0.8, 0.8, 1.0, 1.4],   # healthcare: contraction
+        'IYR': [1.3, 0.9, 0.4, 0.6],   # real estate: recovery, rate sensitive
     }
     hedge_betas = {
-        'GLD': [0.3, 0.4, 0.8, 1.5],
-        'TLT': [0.5, 0.3, 0.6, 1.8],
-        'SHY': [0.1, 0.1, 0.1, 0.3],
+        'GLD': [0.3, 0.5, 1.3, 1.0],   # gold: slowdown/inflation
+        'TLT': [0.8, 0.2, 0.4, 1.8],   # long bonds: contraction
+        'SHY': [0.1, 0.1, 0.1, 0.3],   # short bonds: stable
     }
 
-    # classify each month into a regime for data generation
+    # classify for data generation using ISM momentum + CPI momentum
+    ism_mom = pd.Series(ism).diff(6).values  # 6-month change
+    cpi_mom = pd.Series(cpi_yoy).diff(6).values
+
     regimes_gen = []
     for i in range(len(dates)):
-        if rec_prob[i] > 0.5:
-            regimes_gen.append(3)  # recession
-        elif yc[i] < 0:
-            regimes_gen.append(2)  # late (inverted curve)
-        elif yc[i] > 1.5:
-            regimes_gen.append(0)  # early (steep curve)
+        if i < 6 or np.isnan(ism_mom[i]) or np.isnan(cpi_mom[i]):
+            regimes_gen.append(1)  # default expansion
+        elif ism_mom[i] > 0 and cpi_mom[i] <= 0:
+            regimes_gen.append(0)  # recovery
+        elif ism_mom[i] > 0 and cpi_mom[i] > 0:
+            regimes_gen.append(1)  # expansion
+        elif ism_mom[i] <= 0 and cpi_mom[i] > 0:
+            regimes_gen.append(2)  # slowdown
         else:
-            regimes_gen.append(1)  # mid
+            regimes_gen.append(3)  # contraction
     regimes_gen = np.array(regimes_gen)
 
-    base_ret = 0.08 / 12  # ~8% annual
+    base_ret = 0.08 / 12
     base_vol = 0.16 / np.sqrt(12)
 
     sector_data = {}
@@ -111,101 +100,107 @@ if USE_SYNTHETIC:
         for i in range(len(dates)):
             regime = regimes_gen[i]
             beta = betas[regime]
-            # add noise so it's not perfectly deterministic
             r = base_ret * beta + rng.normal(0, base_vol * 0.8)
             rets.append(r)
         sector_data[ticker] = rets
 
-    # SPY as market
     spy_rets = []
     for i in range(len(dates)):
         regime = regimes_gen[i]
-        r = base_ret * [1.0, 1.0, 0.8, 0.3][regime] + rng.normal(0, base_vol)
+        r = base_ret * [1.0, 1.0, 0.6, 0.3][regime] + rng.normal(0, base_vol)
         spy_rets.append(r)
     sector_data['SPY'] = spy_rets
 
     prices = pd.DataFrame(sector_data, index=dates)
-    monthly_returns = prices.copy()  # these are already returns
-    # convert to prices for display
+    monthly_returns = prices.copy()
     prices = (1 + prices).cumprod() * 100
 
 else:
     import yfinance as yf
 
-    # -- Macro indicators from FRED --
     fred_base = 'https://fred.stlouisfed.org/graph/fredgraph.csv'
 
-    # Chauvet-Piger recession probabilities
-    rec_url = f'{fred_base}?id=RECPROUSM156N&cosd=2001-01-01&coed=2026-03-27'
-    rec_df = pd.read_csv(rec_url, index_col=0, parse_dates=True)
-    rec_df.columns = ['RECPROUSM156N']
-    rec_df['RECPROUSM156N'] = pd.to_numeric(rec_df['RECPROUSM156N'], errors='coerce')
-    rec_prob_series = rec_df['RECPROUSM156N'].dropna() / 100  # convert to 0-1
+    # ISM Manufacturing PMI (NAPM)
+    ism_url = f'{fred_base}?id=NAPM&cosd=1999-01-01&coed=2026-03-27'
+    ism_df = pd.read_csv(ism_url, index_col=0, parse_dates=True)
+    ism_df.columns = ['NAPM']
+    ism_df['NAPM'] = pd.to_numeric(ism_df['NAPM'], errors='coerce')
+    ism_series = ism_df['NAPM'].dropna()
 
-    # 10Y-2Y yield curve spread
-    yc_url = f'{fred_base}?id=T10Y2Y&cosd=2001-01-01&coed=2026-03-27'
-    yc_df = pd.read_csv(yc_url, index_col=0, parse_dates=True)
-    yc_df.columns = ['T10Y2Y']
-    yc_df['T10Y2Y'] = pd.to_numeric(yc_df['T10Y2Y'], errors='coerce')
-    # resample to monthly (use month-end value)
-    yc_series = yc_df['T10Y2Y'].dropna().resample('ME').last()
+    # CPI (all items, seasonally adjusted) — compute YoY % change
+    cpi_url = f'{fred_base}?id=CPIAUCSL&cosd=1999-01-01&coed=2026-03-27'
+    cpi_df = pd.read_csv(cpi_url, index_col=0, parse_dates=True)
+    cpi_df.columns = ['CPIAUCSL']
+    cpi_df['CPIAUCSL'] = pd.to_numeric(cpi_df['CPIAUCSL'], errors='coerce')
+    cpi_yoy = cpi_df['CPIAUCSL'].pct_change(12) * 100  # YoY % change
+    cpi_series = cpi_yoy.dropna()
 
-    # -- Sector ETFs --
+    # Sector ETFs
     tickers_str = ' '.join(ALL_TICKERS)
     prices = yf.download(tickers_str, start='2001-01-01', end='2026-03-27')['Close']
     if isinstance(prices.columns, pd.MultiIndex):
         prices = prices.droplevel(0, axis=1)
 
-    # monthly returns
     monthly_prices = prices.resample('ME').last()
     monthly_returns = monthly_prices.pct_change().dropna()
 
 # =============================================================
-# 2. REGIME CLASSIFICATION
+# 2. REGIME CLASSIFICATION (Investment Clock)
 # =============================================================
+#
+#  Growth direction (ISM 6-month momentum) x Inflation direction (CPI YoY momentum)
+#
+#  |                  | Inflation falling    | Inflation rising      |
+#  |------------------|----------------------|-----------------------|
+#  | Growth rising    | Recovery (reflation) | Expansion (overheat)  |
+#  | Growth falling   | Contraction          | Slowdown (stagflation)|
+#
 
-# align macro data to monthly return dates
 if USE_SYNTHETIC:
     macro = pd.DataFrame({
-        'rec_prob': rec_prob_series,
-        'yc': yc_series,
+        'ism': ism_series,
+        'cpi_yoy': cpi_series,
     })
 else:
+    # resample to monthly
     macro = pd.DataFrame({
-        'rec_prob': rec_prob_series.resample('ME').last(),
-        'yc': yc_series,
+        'ism': ism_series.resample('ME').last(),
+        'cpi_yoy': cpi_series.resample('ME').last(),
     })
 
-common_idx = macro.dropna().index.intersection(monthly_returns.dropna(how='all').index)
+macro = macro.dropna()
+
+# compute 6-month momentum (direction of change)
+macro['ism_mom'] = macro['ism'].diff(6)
+macro['cpi_mom'] = macro['cpi_yoy'].diff(6)
+macro = macro.dropna()
+
+common_idx = macro.index.intersection(monthly_returns.dropna(how='all').index)
 macro = macro.loc[common_idx]
 monthly_returns = monthly_returns.loc[common_idx]
 
-# classify regimes
-# Use recession prob threshold and yield curve slope
-REC_THRESHOLD = 0.5  # >50% = recession
-
-def classify_regime(rec_prob, yc_spread):
-    if rec_prob > REC_THRESHOLD:
-        return 'Recession'
-    elif yc_spread < 0:
-        return 'Late Expansion'
-    elif yc_spread > 1.5:
-        return 'Early Expansion'
-    else:
-        return 'Mid Expansion'
+def classify_regime(ism_mom, cpi_mom):
+    if ism_mom > 0 and cpi_mom <= 0:
+        return 'Recovery'
+    elif ism_mom > 0 and cpi_mom > 0:
+        return 'Expansion'
+    elif ism_mom <= 0 and cpi_mom > 0:
+        return 'Slowdown'
+    else:  # ism falling, cpi falling
+        return 'Contraction'
 
 macro['regime'] = [
-    classify_regime(r, y)
-    for r, y in zip(macro['rec_prob'], macro['yc'])
+    classify_regime(row['ism_mom'], row['cpi_mom'])
+    for _, row in macro.iterrows()
 ]
 
-regime_order = ['Early Expansion', 'Mid Expansion', 'Late Expansion', 'Recession']
+regime_order = ['Recovery', 'Expansion', 'Slowdown', 'Contraction']
 
 print("=== Regime Distribution ===")
 regime_counts = macro['regime'].value_counts().reindex(regime_order).fillna(0).astype(int)
 for regime, count in regime_counts.items():
     pct = count / len(macro) * 100
-    print(f"  {regime:20s}: {count:4d} months ({pct:5.1f}%)")
+    print(f"  {regime:15s}: {count:4d} months ({pct:5.1f}%)")
 
 # =============================================================
 # 3. SECTOR PERFORMANCE BY REGIME
@@ -214,8 +209,6 @@ for regime, count in regime_counts.items():
 sector_tickers = list(SECTOR_ETFS.keys())
 available_sectors = [t for t in sector_tickers if t in monthly_returns.columns]
 
-# compute average monthly return and Sharpe by regime for each sector
-# also compute excess return vs SPY
 results = []
 for regime in regime_order:
     mask = macro['regime'] == regime
@@ -257,7 +250,6 @@ results_df = pd.DataFrame(results)
 print("\n=== Sector Performance by Regime (Ann. Return) ===")
 pivot_ret = results_df.pivot(index='Ticker', columns='Regime', values='Ann Return')
 pivot_ret = pivot_ret.reindex(columns=regime_order)
-# add sector names
 pivot_ret.insert(0, 'Sector', [SECTOR_ETFS.get(t, t) for t in pivot_ret.index])
 print(pivot_ret.to_string(float_format=lambda x: f"{x:.1%}" if isinstance(x, float) else x))
 
@@ -271,13 +263,10 @@ print(pivot_excess.to_string(float_format=lambda x: f"{x:+.1%}" if isinstance(x,
 # 4. CONSISTENCY TEST: DOES LEADERSHIP REPEAT ACROSS CYCLES?
 # =============================================================
 
-# identify distinct regime episodes (contiguous blocks of same regime)
 macro['regime_episode'] = (macro['regime'] != macro['regime'].shift()).cumsum()
 
 print("\n=== Sector Rank Consistency Across Cycles ===")
 print("(Showing top 3 sectors by return in each episode of each regime)\n")
-
-consistency_data = {regime: {} for regime in regime_order}
 
 for regime in regime_order:
     regime_mask = macro['regime'] == regime
@@ -298,7 +287,6 @@ for regime in regime_order:
         if len(ep_returns) < 2:
             continue
 
-        # rank sectors by total return in this episode
         total_ret = (1 + ep_returns).prod() - 1
         ranked = total_ret.sort_values(ascending=False)
         top3 = ranked.head(3)
@@ -314,9 +302,7 @@ for regime in regime_order:
 
         episode_rankings.append(ranked.index.tolist())
 
-    # compute rank correlation between episodes
     if len(episode_rankings) >= 2:
-        # Kendall's W (concordance) across all episodes
         n_sectors = len(available_sectors)
         n_episodes = len(episode_rankings)
 
@@ -325,7 +311,6 @@ for regime in regime_order:
             for j, ticker in enumerate(ranking):
                 rank_matrix[i, available_sectors.index(ticker)] = j + 1
 
-        # average pairwise Spearman correlation
         corrs = []
         for i in range(n_episodes):
             for j in range(i + 1, n_episodes):
@@ -381,34 +366,26 @@ if hedge_tickers:
 
 print("=== Backtest: Regime-Based Sector Rotation vs SPY ===\n")
 
-# strategy: at each month, use current regime to pick sector weights
-# weight = softmax of historical excess return in that regime (expanding window)
-
 strategy_returns = []
 spy_returns_aligned = []
 
-MIN_HISTORY = 24  # need at least 24 months before trading
+MIN_HISTORY = 24
 
 for i in range(MIN_HISTORY, len(common_idx)):
     current_date = common_idx[i]
     current_regime = macro.loc[current_date, 'regime']
 
-    # use only data up to (not including) current month
     history_mask = (macro.index < current_date) & (macro['regime'] == current_regime)
     hist_returns = monthly_returns.loc[history_mask, available_sectors]
 
     if len(hist_returns) < 6:
-        # not enough history for this regime yet, equal weight
         weights = np.ones(len(available_sectors)) / len(available_sectors)
     else:
-        # weight by historical mean return in this regime (softmax)
         mean_rets = hist_returns.mean()
-        # temperature controls concentration (lower = more concentrated)
         temperature = 0.01
         exp_rets = np.exp(mean_rets / temperature)
         weights = exp_rets / exp_rets.sum()
 
-    # realized return this month
     month_ret = monthly_returns.loc[current_date, available_sectors]
     strat_ret = (weights * month_ret).sum()
     strategy_returns.append(strat_ret)
@@ -419,7 +396,6 @@ for i in range(MIN_HISTORY, len(common_idx)):
 strat_series = pd.Series(strategy_returns, index=common_idx[MIN_HISTORY:])
 spy_series = pd.Series(spy_returns_aligned, index=common_idx[MIN_HISTORY:])
 
-# equal-weight sector baseline
 ew_returns = monthly_returns.loc[common_idx[MIN_HISTORY:], available_sectors].mean(axis=1)
 
 def calc_perf(returns, label):
@@ -449,7 +425,6 @@ backtest_strats = [
 perf = pd.DataFrame([calc_perf(r, name) for name, r in backtest_strats])
 print(perf.to_string(index=False))
 
-# statistical test
 if len(spy_series) > 0:
     diff = strat_series - spy_series
     t_stat, p_val = stats.ttest_1samp(diff.dropna(), 0)
@@ -461,28 +436,30 @@ if len(spy_series) > 0:
 
 fig, axes = plt.subplots(2, 2, figsize=(16, 11))
 
-# regime timeline
+# regime timeline with ISM and CPI
 regime_colors = {
-    'Early Expansion': 'green',
-    'Mid Expansion': 'blue',
-    'Late Expansion': 'orange',
-    'Recession': 'red',
+    'Recovery': 'green',
+    'Expansion': 'blue',
+    'Slowdown': 'orange',
+    'Contraction': 'red',
 }
 for i, (date, row) in enumerate(macro.iterrows()):
     axes[0, 0].axvspan(
         date, date + pd.DateOffset(months=1),
-        color=regime_colors.get(row['regime'], 'gray'), alpha=0.4
+        color=regime_colors.get(row['regime'], 'gray'), alpha=0.3
     )
-axes[0, 0].plot(macro.index, macro['rec_prob'], 'k-', linewidth=0.8, label='Rec. Prob')
+axes[0, 0].plot(macro.index, macro['ism'], 'k-', linewidth=1, label='ISM PMI')
+axes[0, 0].axhline(50, color='k', ls=':', alpha=0.3)
 ax2 = axes[0, 0].twinx()
-ax2.plot(macro.index, macro['yc'], 'b--', linewidth=0.8, label='Yield Curve', alpha=0.7)
-ax2.set_ylabel('10Y-2Y Spread (%)')
-axes[0, 0].set_ylabel('Recession Probability')
-axes[0, 0].set_title('Regime Classification Over Time')
-# legend for regimes
+ax2.plot(macro.index, macro['cpi_yoy'], 'r--', linewidth=1, label='CPI YoY %', alpha=0.7)
+ax2.set_ylabel('CPI YoY %', color='red')
+axes[0, 0].set_ylabel('ISM PMI')
+axes[0, 0].set_title('Investment Clock Regime Classification')
 from matplotlib.patches import Patch
-legend_patches = [Patch(color=c, alpha=0.4, label=r) for r, c in regime_colors.items()]
-axes[0, 0].legend(handles=legend_patches, fontsize=7, loc='upper right')
+legend_patches = [Patch(color=c, alpha=0.3, label=r) for r, c in regime_colors.items()]
+legend_patches.append(plt.Line2D([0], [0], color='k', label='ISM PMI'))
+legend_patches.append(plt.Line2D([0], [0], color='r', ls='--', label='CPI YoY'))
+axes[0, 0].legend(handles=legend_patches, fontsize=6, loc='upper left')
 
 # heatmap: excess return by regime
 heatmap_data = results_df.pivot(index='Sector', columns='Regime', values='Excess vs SPY')
