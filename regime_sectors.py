@@ -118,40 +118,37 @@ if USE_SYNTHETIC:
 else:
     import yfinance as yf
     import json
+    import os
     from urllib.request import urlopen, Request
 
+    FRED_API_KEY = os.environ.get('FRED_API_KEY', '')
+    if not FRED_API_KEY:
+        print("ERROR: FRED API key required. Get a free key at:")
+        print("  https://fred.stlouisfed.org/docs/api/api_key.html")
+        print("\nThen run:")
+        print("  FRED_API_KEY=your_key python3 regime_sectors.py")
+        sys.exit(1)
+
     def fetch_fred(series_id, start='1999-01-01', end='2026-03-27'):
-        """Fetch FRED data via their JSON API (no API key needed for this endpoint)."""
-        url = (
-            f'https://fred.stlouisfed.org/graph/fredgraph.csv'
-            f'?id={series_id}&cosd={start}&coed={end}'
+        """Fetch FRED data via their JSON observations API."""
+        api_url = (
+            f'https://api.stlouisfed.org/fred/series/observations'
+            f'?series_id={series_id}&observation_start={start}'
+            f'&observation_end={end}&file_type=json'
+            f'&api_key={FRED_API_KEY}'
         )
-        # try CSV first, fall back to observations API
-        try:
-            df = pd.read_csv(url, index_col=0, parse_dates=True)
-            df.columns = [series_id]
-            df[series_id] = pd.to_numeric(df[series_id], errors='coerce')
-            return df[series_id].dropna()
-        except Exception:
-            # fall back: FRED observations API (no key required for small requests)
-            api_url = (
-                f'https://api.stlouisfed.org/fred/series/observations'
-                f'?series_id={series_id}&observation_start={start}'
-                f'&observation_end={end}&file_type=json'
-                f'&api_key=DEMO_KEY'
-            )
-            req = Request(api_url, headers={'User-Agent': 'Mozilla/5.0'})
-            with urlopen(req) as resp:
-                data = json.loads(resp.read())
-            records = [
-                {'date': obs['date'], series_id: obs['value']}
-                for obs in data['observations']
-            ]
-            df = pd.DataFrame(records)
-            df['date'] = pd.to_datetime(df['date'])
-            df = df.set_index('date')
-            df[series_id] = pd.to_numeric(df[series_id], errors='coerce')
-            return df[series_id].dropna()
+        req = Request(api_url, headers={'User-Agent': 'Mozilla/5.0'})
+        with urlopen(req) as resp:
+            data = json.loads(resp.read())
+        records = [
+            {'date': obs['date'], series_id: obs['value']}
+            for obs in data['observations']
+        ]
+        df = pd.DataFrame(records)
+        df['date'] = pd.to_datetime(df['date'])
+        df = df.set_index('date')
+        df[series_id] = pd.to_numeric(df[series_id], errors='coerce')
+        return df[series_id].dropna()
 
     # ISM Manufacturing PMI (NAPM) from FRED
     ism_series = fetch_fred('NAPM')
