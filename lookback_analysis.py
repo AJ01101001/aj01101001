@@ -1,6 +1,6 @@
+import sys
 import pandas as pd
 import numpy as np
-import yfinance as yf
 from statsmodels.stats.diagnostic import acorr_ljungbox
 from statsmodels.tsa.stattools import acf, pacf
 from scipy import stats
@@ -8,32 +8,48 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from itertools import groupby
 
+USE_SYNTHETIC = '--synthetic' in sys.argv
+
 # =============================================================
 # 1. DATA
 # =============================================================
 
-vti = yf.download('VTI', start='2001-01-01', end='2026-03-27')['Close']
-# Handle MultiIndex columns from recent yfinance versions
-if isinstance(vti, pd.DataFrame):
-    vti = vti['VTI'] if 'VTI' in vti.columns else vti.iloc[:, 0]
-vti = vti.squeeze()
-vti.name = 'VTI'
+if USE_SYNTHETIC:
+    print("** Using synthetic data (offline mode) **\n")
+    rng = np.random.default_rng(123)
+    dates = pd.bdate_range('2001-01-02', '2026-03-27')
+    # geometric Brownian motion approximating VTI (~8% annual return, ~16% vol)
+    daily_ret = rng.normal(0.08 / 252, 0.16 / np.sqrt(252), len(dates))
+    vti = pd.Series(50.0 * np.exp(np.cumsum(daily_ret)), index=dates, name='VTI')
+    # synthetic T-bill: ~2-4% annualized, slowly varying
+    tbill_rate = 3.0 + np.cumsum(rng.normal(0, 0.02, len(dates)))
+    tbill_rate = np.clip(tbill_rate, 0.01, 6.0)
+    tbill_daily = pd.Series(tbill_rate / 100 / 252, index=dates)
+else:
+    import yfinance as yf
 
-# FRED 3-month T-bill (secondary market, daily, annualized %)
-fred_url = (
-    'https://fred.stlouisfed.org/graph/fredgraph.csv'
-    '?id=DTB3&cosd=2001-01-01&coed=2026-03-27'
-)
-tbill = pd.read_csv(fred_url, index_col=0, parse_dates=True)
-tbill.columns = ['DTB3']
-tbill['DTB3'] = pd.to_numeric(tbill['DTB3'], errors='coerce')
-tbill = tbill['DTB3'].dropna()
-tbill_daily = tbill / 100 / 252  # approx daily yield
+    vti = yf.download('VTI', start='2001-01-01', end='2026-03-27')['Close']
+    # Handle MultiIndex columns from recent yfinance versions
+    if isinstance(vti, pd.DataFrame):
+        vti = vti['VTI'] if 'VTI' in vti.columns else vti.iloc[:, 0]
+    vti = vti.squeeze()
+    vti.name = 'VTI'
 
-# align dates
-common = vti.index.intersection(tbill_daily.index)
-vti = vti.loc[common]
-tbill_daily = tbill_daily.loc[common]
+    # FRED 3-month T-bill (secondary market, daily, annualized %)
+    fred_url = (
+        'https://fred.stlouisfed.org/graph/fredgraph.csv'
+        '?id=DTB3&cosd=2001-01-01&coed=2026-03-27'
+    )
+    tbill = pd.read_csv(fred_url, index_col=0, parse_dates=True)
+    tbill.columns = ['DTB3']
+    tbill['DTB3'] = pd.to_numeric(tbill['DTB3'], errors='coerce')
+    tbill = tbill['DTB3'].dropna()
+    tbill_daily = tbill / 100 / 252  # approx daily yield
+
+    # align dates
+    common = vti.index.intersection(tbill_daily.index)
+    vti = vti.loc[common]
+    tbill_daily = tbill_daily.loc[common]
 
 # =============================================================
 # 2. MONTH-END REBALANCING DATES
