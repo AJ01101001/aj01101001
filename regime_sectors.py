@@ -117,45 +117,38 @@ if USE_SYNTHETIC:
 
 else:
     import yfinance as yf
-    import json
     import os
-    from urllib.request import urlopen, Request
 
-    FRED_API_KEY = os.environ.get('FRED_API_KEY', '')
-    if not FRED_API_KEY:
-        print("ERROR: FRED API key required. Get a free key at:")
-        print("  https://fred.stlouisfed.org/docs/api/api_key.html")
-        print("\nThen run:")
-        print("  FRED_API_KEY=your_key python3 regime_sectors.py")
-        sys.exit(1)
+    # Load macro data from local CSV files (INDPRO and CPIAUCSL from FRED)
+    # To regenerate these files, run:
+    #   python3 -c "
+    #   import requests
+    #   key = 'YOUR_FRED_API_KEY'
+    #   for sid in ['INDPRO', 'CPIAUCSL']:
+    #       r = requests.get(f'https://api.stlouisfed.org/fred/series/observations?series_id={sid}&observation_start=1999-01-01&observation_end=2026-03-27&file_type=json&api_key={key}')
+    #       data = r.json()
+    #       lines = ['date,value']
+    #       for obs in data['observations']:
+    #           if obs['value'] != '.':
+    #               lines.append(f\"{obs['date']},{obs['value']}\")
+    #       with open(f'{sid}.csv', 'w') as f:
+    #           f.write('\n'.join(lines))
+    #   "
 
-    def fetch_fred(series_id, start='1999-01-01', end='2026-03-27'):
-        """Fetch FRED data via their JSON observations API."""
-        api_url = (
-            f'https://api.stlouisfed.org/fred/series/observations'
-            f'?series_id={series_id}&observation_start={start}'
-            f'&observation_end={end}&file_type=json'
-            f'&api_key={FRED_API_KEY}'
-        )
-        req = Request(api_url, headers={'User-Agent': 'Mozilla/5.0'})
-        with urlopen(req) as resp:
-            data = json.loads(resp.read())
-        records = [
-            {'date': obs['date'], series_id: obs['value']}
-            for obs in data['observations']
-        ]
-        df = pd.DataFrame(records)
-        df['date'] = pd.to_datetime(df['date'])
-        df = df.set_index('date')
-        df[series_id] = pd.to_numeric(df[series_id], errors='coerce')
-        return df[series_id].dropna()
+    script_dir = os.path.dirname(os.path.abspath(__file__))
 
-    # ISM Manufacturing PMI (NAPM) from FRED
-    ism_series = fetch_fred('NAPM')
+    # Industrial Production Index (growth proxy, replaces ISM PMI)
+    indpro_df = pd.read_csv(os.path.join(script_dir, 'INDPRO.csv'), parse_dates=['date'], index_col='date')
+    indpro_df['value'] = pd.to_numeric(indpro_df['value'], errors='coerce')
+    # compute YoY % change as growth momentum signal
+    indpro_yoy = indpro_df['value'].pct_change(12) * 100
+    ism_series = indpro_yoy.dropna()
+    ism_series.name = 'INDPRO_YOY'
 
     # CPI (all items, seasonally adjusted) — compute YoY % change
-    cpi_raw = fetch_fred('CPIAUCSL')
-    cpi_yoy = cpi_raw.pct_change(12) * 100  # YoY % change
+    cpi_df = pd.read_csv(os.path.join(script_dir, 'CPIAUCSL.csv'), parse_dates=['date'], index_col='date')
+    cpi_df['value'] = pd.to_numeric(cpi_df['value'], errors='coerce')
+    cpi_yoy = cpi_df['value'].pct_change(12) * 100
     cpi_series = cpi_yoy.dropna()
 
     # Sector ETFs
@@ -171,7 +164,7 @@ else:
 # 2. REGIME CLASSIFICATION (Investment Clock)
 # =============================================================
 #
-#  Growth direction (ISM 6-month momentum) x Inflation direction (CPI YoY momentum)
+#  Growth direction (Industrial Production 6-month momentum) x Inflation direction (CPI YoY momentum)
 #
 #  |                  | Inflation falling    | Inflation rising      |
 #  |------------------|----------------------|-----------------------|
@@ -471,16 +464,16 @@ for i, (date, row) in enumerate(macro.iterrows()):
         date, date + pd.DateOffset(months=1),
         color=regime_colors.get(row['regime'], 'gray'), alpha=0.3
     )
-axes[0, 0].plot(macro.index, macro['ism'], 'k-', linewidth=1, label='ISM PMI')
-axes[0, 0].axhline(50, color='k', ls=':', alpha=0.3)
+axes[0, 0].plot(macro.index, macro['ism'], 'k-', linewidth=1, label='Ind. Prod. YoY%')
+axes[0, 0].axhline(0, color='k', ls=':', alpha=0.3)
 ax2 = axes[0, 0].twinx()
 ax2.plot(macro.index, macro['cpi_yoy'], 'r--', linewidth=1, label='CPI YoY %', alpha=0.7)
 ax2.set_ylabel('CPI YoY %', color='red')
-axes[0, 0].set_ylabel('ISM PMI')
+axes[0, 0].set_ylabel('Ind. Prod. YoY %')
 axes[0, 0].set_title('Investment Clock Regime Classification')
 from matplotlib.patches import Patch
 legend_patches = [Patch(color=c, alpha=0.3, label=r) for r, c in regime_colors.items()]
-legend_patches.append(plt.Line2D([0], [0], color='k', label='ISM PMI'))
+legend_patches.append(plt.Line2D([0], [0], color='k', label='Ind. Prod. YoY%'))
 legend_patches.append(plt.Line2D([0], [0], color='r', ls='--', label='CPI YoY'))
 axes[0, 0].legend(handles=legend_patches, fontsize=6, loc='upper left')
 
