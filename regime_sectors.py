@@ -119,12 +119,12 @@ else:
     import yfinance as yf
     import os
 
-    # Load macro data from local CSV files (INDPRO and CPIAUCSL from FRED)
-    # To regenerate these files, run:
+    # Load macro data from local CSV files
+    # To regenerate, run:
     #   python3 -c "
     #   import requests
     #   key = 'YOUR_FRED_API_KEY'
-    #   for sid in ['INDPRO', 'CPIAUCSL']:
+    #   for sid in ['ICSA', 'T5YIE']:
     #       r = requests.get(f'https://api.stlouisfed.org/fred/series/observations?series_id={sid}&observation_start=1999-01-01&observation_end=2026-03-27&file_type=json&api_key={key}')
     #       data = r.json()
     #       lines = ['date,value']
@@ -137,19 +137,22 @@ else:
 
     script_dir = os.path.dirname(os.path.abspath(__file__))
 
-    # Industrial Production Index (growth proxy, replaces ISM PMI)
-    indpro_df = pd.read_csv(os.path.join(script_dir, 'INDPRO.csv'), parse_dates=['date'], index_col='date')
-    indpro_df['value'] = pd.to_numeric(indpro_df['value'], errors='coerce')
-    # compute YoY % change as growth momentum signal
-    indpro_yoy = indpro_df['value'].pct_change(12) * 100
-    ism_series = indpro_yoy.dropna()
-    ism_series.name = 'INDPRO_YOY'
+    # Initial Jobless Claims (weekly, ~1 day lag) — growth proxy
+    # Rising claims = growth slowing, falling claims = growth improving
+    icsa_df = pd.read_csv(os.path.join(script_dir, 'ICSA.csv'), parse_dates=['date'], index_col='date')
+    icsa_df['value'] = pd.to_numeric(icsa_df['value'], errors='coerce')
+    # resample to monthly (use last value of month), then 3-month momentum
+    # NOTE: claims are INVERSE — rising = bad, so we negate the momentum
+    icsa_monthly = icsa_df['value'].resample('ME').last()
+    ism_series = icsa_monthly.dropna()
+    ism_series.name = 'ICSA'
 
-    # CPI (all items, seasonally adjusted) — compute YoY % change
-    cpi_df = pd.read_csv(os.path.join(script_dir, 'CPIAUCSL.csv'), parse_dates=['date'], index_col='date')
-    cpi_df['value'] = pd.to_numeric(cpi_df['value'], errors='coerce')
-    cpi_yoy = cpi_df['value'].pct_change(12) * 100
-    cpi_series = cpi_yoy.dropna()
+    # 5-Year Breakeven Inflation Rate (daily, market-implied, no lag)
+    t5yie_df = pd.read_csv(os.path.join(script_dir, 'T5YIE.csv'), parse_dates=['date'], index_col='date')
+    t5yie_df['value'] = pd.to_numeric(t5yie_df['value'], errors='coerce')
+    # resample to monthly
+    cpi_series = t5yie_df['value'].resample('ME').last().dropna()
+    cpi_series.name = 'T5YIE'
 
     # Sector ETFs
     tickers_str = ' '.join(ALL_TICKERS)
@@ -164,7 +167,8 @@ else:
 # 2. REGIME CLASSIFICATION (Investment Clock)
 # =============================================================
 #
-#  Growth direction (Industrial Production 6-month momentum) x Inflation direction (CPI YoY momentum)
+#  Growth direction (Initial Claims 3-month momentum, INVERTED)
+#  x Inflation direction (5Y Breakeven Inflation 3-month momentum)
 #
 #  |                  | Inflation falling    | Inflation rising      |
 #  |------------------|----------------------|-----------------------|
@@ -178,31 +182,31 @@ if USE_SYNTHETIC:
         'cpi_yoy': cpi_series,
     })
 else:
-    # resample to monthly
     macro = pd.DataFrame({
-        'ism': ism_series.resample('ME').last(),
-        'cpi_yoy': cpi_series.resample('ME').last(),
+        'ism': ism_series,       # ICSA monthly
+        'cpi_yoy': cpi_series,   # T5YIE monthly
     })
 
 macro = macro.dropna()
 
-# compute 6-month momentum (direction of change)
-macro['ism_mom'] = macro['ism'].diff(6)
-macro['cpi_mom'] = macro['cpi_yoy'].diff(6)
+# 3-month momentum for faster detection (was 6-month with INDPRO/CPI)
+# Claims are INVERTED: falling claims = growth improving, so negate
+macro['ism_mom'] = -macro['ism'].diff(3)  # negative diff = claims falling = growth rising
+macro['cpi_mom'] = macro['cpi_yoy'].diff(3)  # breakeven rising = inflation rising
 macro = macro.dropna()
 
 common_idx = macro.index.intersection(monthly_returns.dropna(how='all').index)
 macro = macro.loc[common_idx]
 monthly_returns = monthly_returns.loc[common_idx]
 
-def classify_regime(ism_mom, cpi_mom):
-    if ism_mom > 0 and cpi_mom <= 0:
+def classify_regime(growth_mom, infl_mom):
+    if growth_mom > 0 and infl_mom <= 0:
         return 'Recovery'
-    elif ism_mom > 0 and cpi_mom > 0:
+    elif growth_mom > 0 and infl_mom > 0:
         return 'Expansion'
-    elif ism_mom <= 0 and cpi_mom > 0:
+    elif growth_mom <= 0 and infl_mom > 0:
         return 'Slowdown'
-    else:  # ism falling, cpi falling
+    else:  # growth falling, inflation falling
         return 'Contraction'
 
 macro['regime'] = [
@@ -473,17 +477,17 @@ for i, (date, row) in enumerate(macro.iterrows()):
         date, date + pd.DateOffset(months=1),
         color=regime_colors.get(row['regime'], 'gray'), alpha=0.3
     )
-axes[0, 0].plot(macro.index, macro['ism'], 'k-', linewidth=1, label='Ind. Prod. YoY%')
-axes[0, 0].axhline(0, color='k', ls=':', alpha=0.3)
+axes[0, 0].plot(macro.index, macro['ism'] / 1000, 'k-', linewidth=1, label='Claims (K)')
+axes[0, 0].axhline(macro['ism'].median() / 1000, color='k', ls=':', alpha=0.3)
 ax2 = axes[0, 0].twinx()
-ax2.plot(macro.index, macro['cpi_yoy'], 'r--', linewidth=1, label='CPI YoY %', alpha=0.7)
-ax2.set_ylabel('CPI YoY %', color='red')
-axes[0, 0].set_ylabel('Ind. Prod. YoY %')
+ax2.plot(macro.index, macro['cpi_yoy'], 'r--', linewidth=1, label='5Y Breakeven', alpha=0.7)
+ax2.set_ylabel('5Y Breakeven Inflation %', color='red')
+axes[0, 0].set_ylabel('Initial Claims (thousands)')
 axes[0, 0].set_title('Investment Clock Regime Classification')
 from matplotlib.patches import Patch
 legend_patches = [Patch(color=c, alpha=0.3, label=r) for r, c in regime_colors.items()]
-legend_patches.append(plt.Line2D([0], [0], color='k', label='Ind. Prod. YoY%'))
-legend_patches.append(plt.Line2D([0], [0], color='r', ls='--', label='CPI YoY'))
+legend_patches.append(plt.Line2D([0], [0], color='k', label='Claims (K)'))
+legend_patches.append(plt.Line2D([0], [0], color='r', ls='--', label='5Y Breakeven'))
 axes[0, 0].legend(handles=legend_patches, fontsize=6, loc='upper left')
 
 # heatmap: excess return by regime
