@@ -117,22 +117,48 @@ if USE_SYNTHETIC:
 
 else:
     import yfinance as yf
+    import json
+    from urllib.request import urlopen, Request
 
-    fred_base = 'https://fred.stlouisfed.org/graph/fredgraph.csv'
+    def fetch_fred(series_id, start='1999-01-01', end='2026-03-27'):
+        """Fetch FRED data via their JSON API (no API key needed for this endpoint)."""
+        url = (
+            f'https://fred.stlouisfed.org/graph/fredgraph.csv'
+            f'?id={series_id}&cosd={start}&coed={end}'
+        )
+        # try CSV first, fall back to observations API
+        try:
+            df = pd.read_csv(url, index_col=0, parse_dates=True)
+            df.columns = [series_id]
+            df[series_id] = pd.to_numeric(df[series_id], errors='coerce')
+            return df[series_id].dropna()
+        except Exception:
+            # fall back: FRED observations API (no key required for small requests)
+            api_url = (
+                f'https://api.stlouisfed.org/fred/series/observations'
+                f'?series_id={series_id}&observation_start={start}'
+                f'&observation_end={end}&file_type=json'
+                f'&api_key=DEMO_KEY'
+            )
+            req = Request(api_url, headers={'User-Agent': 'Mozilla/5.0'})
+            with urlopen(req) as resp:
+                data = json.loads(resp.read())
+            records = [
+                {'date': obs['date'], series_id: obs['value']}
+                for obs in data['observations']
+            ]
+            df = pd.DataFrame(records)
+            df['date'] = pd.to_datetime(df['date'])
+            df = df.set_index('date')
+            df[series_id] = pd.to_numeric(df[series_id], errors='coerce')
+            return df[series_id].dropna()
 
-    # ISM Manufacturing PMI (NAPM)
-    ism_url = f'{fred_base}?id=NAPM&cosd=1999-01-01&coed=2026-03-27'
-    ism_df = pd.read_csv(ism_url, index_col=0, parse_dates=True)
-    ism_df.columns = ['NAPM']
-    ism_df['NAPM'] = pd.to_numeric(ism_df['NAPM'], errors='coerce')
-    ism_series = ism_df['NAPM'].dropna()
+    # ISM Manufacturing PMI (NAPM) from FRED
+    ism_series = fetch_fred('NAPM')
 
     # CPI (all items, seasonally adjusted) — compute YoY % change
-    cpi_url = f'{fred_base}?id=CPIAUCSL&cosd=1999-01-01&coed=2026-03-27'
-    cpi_df = pd.read_csv(cpi_url, index_col=0, parse_dates=True)
-    cpi_df.columns = ['CPIAUCSL']
-    cpi_df['CPIAUCSL'] = pd.to_numeric(cpi_df['CPIAUCSL'], errors='coerce')
-    cpi_yoy = cpi_df['CPIAUCSL'].pct_change(12) * 100  # YoY % change
+    cpi_raw = fetch_fred('CPIAUCSL')
+    cpi_yoy = cpi_raw.pct_change(12) * 100  # YoY % change
     cpi_series = cpi_yoy.dropna()
 
     # Sector ETFs
