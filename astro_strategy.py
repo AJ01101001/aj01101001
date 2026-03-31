@@ -79,13 +79,40 @@ if USE_SYNTHETIC:
 
     monthly_returns = pd.DataFrame(sector_data, index=dates)
 else:
-    import yfinance as yf
+    import requests
+    import io
+    import time
 
-    tickers_str = ' '.join(ALL_TICKERS)
-    prices = yf.download(tickers_str, start='2001-01-01', end='2026-03-27')['Close']
-    if isinstance(prices.columns, pd.MultiIndex):
-        prices = prices.droplevel(0, axis=1)
+    def download_yahoo(ticker, start='2001-01-01', end='2026-03-28'):
+        """Download historical daily close prices from Yahoo Finance."""
+        s = int(pd.Timestamp(start).timestamp())
+        e = int(pd.Timestamp(end).timestamp())
+        url = (f'https://query1.finance.yahoo.com/v7/finance/download/{ticker}'
+               f'?period1={s}&period2={e}&interval=1d&events=history')
+        headers = {'User-Agent': 'Mozilla/5.0'}
+        for attempt in range(3):
+            try:
+                resp = requests.get(url, headers=headers, timeout=30)
+                resp.raise_for_status()
+                df = pd.read_csv(io.StringIO(resp.text), index_col='Date',
+                                 parse_dates=True)
+                return df['Close'].dropna()
+            except Exception as exc:
+                if attempt < 2:
+                    time.sleep(2 ** attempt)
+                else:
+                    print(f"  WARNING: failed to download {ticker}: {exc}")
+                    return pd.Series(dtype=float)
 
+    print("Downloading price data from Yahoo Finance...")
+    price_frames = {}
+    for ticker in ALL_TICKERS:
+        series = download_yahoo(ticker)
+        if len(series) > 0:
+            price_frames[ticker] = series
+            print(f"  {ticker}: {len(series)} days")
+
+    prices = pd.DataFrame(price_frames)
     monthly_prices = prices.resample('ME').last()
     monthly_returns = monthly_prices.pct_change().dropna()
 
