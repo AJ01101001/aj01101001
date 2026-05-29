@@ -91,6 +91,20 @@ dat <- rain |>
   )
 season_vars <- c("s1","c1","s2","c2","doy")
 
+# Persistence features: weather autocorrelates (storms span days), so prior
+# rain is the strongest cheap predictor. Included as a REAL-signal benchmark
+# to sit beside the null astronomical features.
+dat <- dat |>
+  arrange(date) |>
+  mutate(
+    rained_int       = as.integer(as.character(rained)),
+    rained_yesterday = lag(rained_int, 1),
+    prcp_yesterday   = lag(prcp_mm, 1),
+    rain3            = lag(prcp_mm,1) + lag(prcp_mm,2) + lag(prcp_mm,3)
+  ) |>
+  filter(!is.na(rain3))
+persist_vars <- c("rained_yesterday","prcp_yesterday","rain3")
+
 cut_year <- floor(median(dat$year))
 train <- filter(dat, year <  cut_year)
 test  <- filter(dat, year >= cut_year)
@@ -103,41 +117,49 @@ auc <- function(s, y) { y <- as.integer(as.character(y))
 brier <- function(p, y) mean((p - as.integer(as.character(y)))^2)
 X <- function(d, v) as.data.frame(d[, v])
 
-# ---- 5. OCCURRENCE: season-only vs season+full-ephemeris ----------------
+# ---- 5. OCCURRENCE: 4-way holdout comparison ---------------------------
 message("Fitting occurrence forests ...")
-rf_b <- ranger(x = X(train, season_vars), y = train$rained,
-               probability = TRUE, num.trees = NTREES)
-rf_f <- ranger(x = X(train, c(season_vars, ephem_vars)), y = train$rained,
-               probability = TRUE, num.trees = NTREES, importance = "impurity")
-pb <- predict(rf_b, X(test, season_vars))$predictions[,"1"]
-pf <- predict(rf_f, X(test, c(season_vars, ephem_vars)))$predictions[,"1"]
+occ <- function(v, imp = "none")
+  ranger(x = X(train, v), y = train$rained, probability = TRUE,
+         num.trees = NTREES, importance = imp)
+pocc <- function(m, v) predict(m, X(test, v))$predictions[,"1"]
 
-cat("\n=== HOLDOUT occurrence (higher AUC / lower Brier = better) ===\n")
-cat(sprintf("  season only        : AUC %.4f  Brier %.4f\n", auc(pb,test$rained), brier(pb,test$rained)))
-cat(sprintf("  season + ephemeris : AUC %.4f  Brier %.4f\n", auc(pf,test$rained), brier(pf,test$rained)))
+sets <- list(
+  "season only"            = season_vars,
+  "season + persistence"   = c(season_vars, persist_vars),
+  "season + ephemeris"     = c(season_vars, ephem_vars),
+  "season + persist + eph" = c(season_vars, persist_vars, ephem_vars)
+)
+rf_eph <- occ(c(season_vars, ephem_vars), imp = "impurity")  # kept for importances
 
-# ---- 6. AMOUNT|rain: season-only vs season+full-ephemeris ---------------
+cat("\n=== HOLDOUT occurrence (higher AUC / lower Brier = better; 0.50 = coin flip) ===\n")
+for (label in names(sets)) {
+  v <- sets[[label]]
+  m <- if (identical(v, c(season_vars, ephem_vars))) rf_eph else occ(v)
+  p <- pocc(m, v)
+  cat(sprintf("  %-24s : AUC %.4f  Brier %.4f\n", label, auc(p, test$rained), brier(p, test$rained)))
+}
+
+# ---- 6. AMOUNT|rain: same comparison -----------------------------------
 message("Fitting amount forests ...")
 wtr <- filter(train, rained == 1); wte <- filter(test, rained == 1)
 ya  <- log(wtr$prcp_mm); yte <- log(wte$prcp_mm)
-ra_b <- ranger(x = X(wtr, season_vars), y = ya, num.trees = NTREES)
-ra_f <- ranger(x = X(wtr, c(season_vars, ephem_vars)), y = ya, num.trees = NTREES)
-qb <- predict(ra_b, X(wte, season_vars))$predictions
-qf <- predict(ra_f, X(wte, c(season_vars, ephem_vars)))$predictions
 rmse <- function(p,a) sqrt(mean((p-a)^2))
+amt <- function(v) predict(ranger(x = X(wtr, v), y = ya, num.trees = NTREES), X(wte, v))$predictions
 
 cat("\n=== HOLDOUT amount|rain on log(mm) (higher cor / lower RMSE = better) ===\n")
-cat(sprintf("  season only        : cor %.4f  RMSE %.4f\n", cor(qb,yte), rmse(qb,yte)))
-cat(sprintf("  season + ephemeris : cor %.4f  RMSE %.4f\n", cor(qf,yte), rmse(qf,yte)))
+for (label in names(sets)) {
+  q <- amt(sets[[label]])
+  cat(sprintf("  %-24s : cor %.4f  RMSE %.4f\n", label, cor(q, yte), rmse(q, yte)))
+}
 
 # ---- 7. what the forest leaned on --------------------------------------
-imp <- sort(rf_f$variable.importance, decreasing = TRUE)
-cat("\n=== Top 15 features by importance (occurrence forest) ===\n")
+imp <- sort(rf_eph$variable.importance, decreasing = TRUE)
+cat("\n=== Top 15 features by importance (ephemeris occurrence forest) ===\n")
 print(round(head(imp, 15), 2))
 
 cat("\nVERDICT GUIDE:\n")
-cat("  If 'season + ephemeris' ~ 'season only' on the holdout, there is NO\n")
-cat("  multivariable astronomical equation for Central Park rain - the forest\n")
-cat("  had 130 features and free rein to find interactions, and found nothing\n")
-cat("  that generalizes. Only a clear holdout jump (e.g. AUC 0.53 -> 0.60+)\n")
-cat("  would support a real quasi-deterministic relationship.\n")
+cat("  'persistence' (yesterday's rain) is a REAL predictor and should lift the\n")
+cat("  holdout AUC clearly. If 'ephemeris' sits at ~'season only' (or worse),\n")
+cat("  there is no multivariable astronomical signal - the contrast between the\n")
+cat("  two is the whole point: one is what real signal looks like, one is noise.\n")
