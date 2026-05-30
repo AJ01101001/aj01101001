@@ -277,20 +277,22 @@ def fetch_real_pwat(requests):
             f'&STNM={station}'
         )
 
-        headers = {'User-Agent': 'Mozilla/5.0 (compatible; weather-research)'}
+        headers = {'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36'}
+        resp = None
         for attempt in range(3):
             try:
-                resp = requests.get(url, timeout=60, headers=headers)
+                resp = requests.get(url, timeout=30, headers=headers)
                 if resp.status_code == 200:
                     break
+                print(f'    {year}-{month:02d}: HTTP {resp.status_code}, retry {attempt+1}')
                 time.sleep(5)
-            except Exception:
+            except Exception as e:
+                print(f'    {year}-{month:02d}: error {e}, retry {attempt+1}')
                 if attempt < 2:
                     time.sleep(5)
-        else:
-            continue
 
-        if resp.status_code != 200:
+        if resp is None or resp.status_code != 200:
+            print(f'    {year}-{month:02d}: skipped')
             continue
 
         html = resp.text
@@ -304,15 +306,20 @@ def fetch_real_pwat(requests):
         month_map = {'Jan': 1, 'Feb': 2, 'Mar': 3, 'Apr': 4, 'May': 5, 'Jun': 6,
                      'Jul': 7, 'Aug': 8, 'Sep': 9, 'Oct': 10, 'Nov': 11, 'Dec': 12}
 
+        count = 0
         for (hour, day, mon_str, yr), pwat_str in zip(obs_times, pwat_values):
             try:
                 dt = pd.Timestamp(int(yr), month_map[mon_str], int(day), int(hour))
                 all_records.append({'time': dt, 'pwat_real': float(pwat_str)})
+                count += 1
             except (ValueError, KeyError):
                 pass
 
-        if (i + 1) % 12 == 0 or i == total - 1:
-            print(f'    PWAT soundings: {year} done ({i+1}/{total} months)')
+        print(f'    {year}-{month:02d}: {count} readings', end='', flush=True)
+        if (i + 1) % 6 == 0:
+            print(f'  ({i+1}/{total})')
+        else:
+            print()
         time.sleep(1.5)
 
     if not all_records:
