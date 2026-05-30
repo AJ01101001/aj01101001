@@ -276,11 +276,20 @@ def build_features(df):
 # MODEL
 # =============================================================
 
+LEAK_COLS = [
+    'precipitation', 'rain', 'snowfall', 'will_rain',
+    'lunar_name', 'lunar_phase', 'date',
+    'precip_hours', 'temp_mean', 'temp_max', 'temp_min',
+    'dewpoint_mean', 'humidity_mean', 'wind_max',
+    'pwat_est', 'rain_2day_sum',
+    'Open', 'High', 'Low', 'Close', 'Volume',
+    'BB_Middle', 'BB_Upper', 'BB_Lower', 'BB_Width',
+]
+
+
 def train_models(df):
-    feature_cols = [c for c in df.columns if c not in [
-        'precipitation', 'rain', 'snowfall', 'will_rain',
-        'lunar_name', 'lunar_phase', 'date',
-    ] and df[c].dtype in ['float64', 'int64', 'int32', 'float32']]
+    feature_cols = [c for c in df.columns if c not in LEAK_COLS
+                    and df[c].dtype in ['float64', 'int64', 'int32', 'float32']]
 
     X = df[feature_cols].values
     y_amount = df['precipitation'].values
@@ -371,6 +380,79 @@ def train_models(df):
         'amt_mae': mean_absolute_error(y_amt_test, amt_pred),
         'amt_rmse': np.sqrt(mean_squared_error(y_amt_test, amt_pred)),
     }
+
+
+def walk_forward_backtest(df, n_folds=5):
+    feature_cols = [c for c in df.columns if c not in LEAK_COLS
+                    and df[c].dtype in ['float64', 'int64', 'int32', 'float32']]
+
+    X = df[feature_cols].values
+    y_bin = df['will_rain'].values
+    y_amt = df['precipitation'].values
+    dates = df.index
+
+    fold_size = len(X) // (n_folds + 1)
+    results = []
+
+    for fold in range(n_folds):
+        train_end = fold_size * (fold + 2)
+        test_start = train_end
+        test_end = min(test_start + fold_size, len(X))
+        if test_end <= test_start:
+            continue
+
+        X_tr, X_te = X[:train_end], X[test_start:test_end]
+        y_bin_tr, y_bin_te = y_bin[:train_end], y_bin[test_start:test_end]
+        y_amt_tr, y_amt_te = y_amt[:train_end], y_amt[test_start:test_end]
+
+        scaler = StandardScaler()
+        X_tr_s = scaler.fit_transform(X_tr)
+        X_te_s = scaler.transform(X_te)
+
+        clf = GradientBoostingClassifier(
+            n_estimators=200, max_depth=4, learning_rate=0.1,
+            subsample=0.8, random_state=42)
+        clf.fit(X_tr_s, y_bin_tr)
+        bin_pred = clf.predict(X_te_s)
+        bin_prob = clf.predict_proba(X_te_s)[:, 1]
+
+        rain_mask = y_amt_tr > 0.1
+        if rain_mask.sum() > 50:
+            reg = GradientBoostingRegressor(
+                n_estimators=200, max_depth=4, learning_rate=0.1,
+                subsample=0.8, random_state=42)
+            reg.fit(X_tr_s[rain_mask], y_amt_tr[rain_mask])
+            amt_pred = np.maximum(reg.predict(X_te_s), 0) * bin_prob
+        else:
+            amt_pred = np.zeros(len(X_te_s))
+
+        acc = accuracy_score(y_bin_te, bin_pred)
+        mae = mean_absolute_error(y_amt_te, amt_pred)
+        rmse = np.sqrt(mean_squared_error(y_amt_te, amt_pred))
+        base_acc = max(y_bin_te.mean(), 1 - y_bin_te.mean())
+
+        test_dates = dates[test_start:test_end]
+        results.append({
+            'fold': fold + 1,
+            'train_end': dates[train_end - 1].strftime('%Y-%m-%d'),
+            'test_start': test_dates[0].strftime('%Y-%m-%d'),
+            'test_end': test_dates[-1].strftime('%Y-%m-%d'),
+            'n_test': len(X_te),
+            'accuracy': acc,
+            'baseline_acc': base_acc,
+            'lift': acc - base_acc,
+            'mae': mae,
+            'rmse': rmse,
+            'rain_rate': y_bin_te.mean(),
+            'y_true': y_bin_te,
+            'y_pred': bin_pred,
+            'y_prob': bin_prob,
+            'y_amt_true': y_amt_te,
+            'y_amt_pred': amt_pred,
+        })
+
+    return results
+
 
 # =============================================================
 # LUNAR ANALYSIS
@@ -784,6 +866,59 @@ def main():
     print(f'  Expected amount: {prediction["expected_amount"]:.1f} mm')
     if prediction['rain_prob'] > 0.5:
         print(f'  If it rains: ~{prediction["rain_amount_if_rain"]:.1f} mm')
+
+    # walk-forward backtest
+    print(f'\n{"="*65}')
+    print('WALK-FORWARD BACKTEST (no data leakage)')
+    print(f'{"="*65}')
+    print('  Features used: only lagged/yesterday values + lunar + season')
+    print('  Same-day weather (precip_hours, temp, dewpoint, etc.) excluded\n')
+    bt_results = walk_forward_backtest(df_feat, n_folds=5)
+
+    print(f'  {"Fold":>4s}  {"Test Period":>25s}  {"Acc":>6s}  {"Base":>6s}  '
+          f'{"Lift":>6s}  {"MAE":>6s}  {"RMSE":>6s}  {"Rain%":>6s}')
+    print('  ' + '-' * 85)
+    for r in bt_results:
+        print(f'  {r["fold"]:>4d}  {r["test_start"]} – {r["test_end"]}  '
+              f'{r["accuracy"]*100:>5.1f}%  {r["baseline_acc"]*100:>5.1f}%  '
+              f'{r["lift"]*100:>+5.1f}%  {r["mae"]:>5.2f}  {r["rmse"]:>5.2f}  '
+              f'{r["rain_rate"]*100:>5.1f}%')
+
+    avg_acc = np.mean([r['accuracy'] for r in bt_results])
+    avg_base = np.mean([r['baseline_acc'] for r in bt_results])
+    avg_lift = np.mean([r['lift'] for r in bt_results])
+    avg_mae = np.mean([r['mae'] for r in bt_results])
+    avg_rmse = np.mean([r['rmse'] for r in bt_results])
+    print('  ' + '-' * 85)
+    print(f'  {"AVG":>4s}  {"":>25s}  {avg_acc*100:>5.1f}%  {avg_base*100:>5.1f}%  '
+          f'{avg_lift*100:>+5.1f}%  {avg_mae:>5.2f}  {avg_rmse:>5.2f}')
+
+    if avg_lift > 0.02:
+        print(f'\n  Model beats baseline by {avg_lift*100:.1f}% — real signal.')
+    elif avg_lift > 0:
+        print(f'\n  Model barely beats baseline ({avg_lift*100:.1f}%) — marginal.')
+    else:
+        print(f'\n  Model does NOT beat baseline — no better than "always predict majority class."')
+
+    # amount accuracy on rainy days only
+    print(f'\n  Amount prediction on rainy days:')
+    all_true_rain = []
+    all_pred_rain = []
+    for r in bt_results:
+        rain_mask = r['y_amt_true'] > 0.1
+        if rain_mask.sum() > 0:
+            all_true_rain.extend(r['y_amt_true'][rain_mask])
+            all_pred_rain.extend(r['y_amt_pred'][rain_mask])
+    if all_true_rain:
+        all_true_rain = np.array(all_true_rain)
+        all_pred_rain = np.array(all_pred_rain)
+        rain_mae = mean_absolute_error(all_true_rain, all_pred_rain)
+        rain_rmse = np.sqrt(mean_squared_error(all_true_rain, all_pred_rain))
+        rain_r2 = r2_score(all_true_rain, all_pred_rain)
+        print(f'    MAE:  {rain_mae:.2f} mm')
+        print(f'    RMSE: {rain_rmse:.2f} mm')
+        print(f'    R²:   {rain_r2:.3f}')
+        print(f'    Avg actual rain on rainy days: {all_true_rain.mean():.2f} mm')
 
     plot_dashboard(df_feat, model_results, lunar_results, prediction)
     print('\nDone. Open rain_forecast.png')
