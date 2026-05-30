@@ -87,7 +87,7 @@ def compute_indicators(df):
     out = df[['Open', 'High', 'Low', 'Close', 'Volume']].copy()
 
     for span in [10, 20, 50, 100, 200]:
-        ema = np.full(n, np.nan)
+        ema = np.empty(n)
         alpha = 2 / (span + 1)
         ema[0] = c[0]
         for i in range(1, n):
@@ -129,12 +129,12 @@ def compute_indicators(df):
     out['BB_Width'] = (out['BB_Upper'] - out['BB_Lower']) / out['BB_Middle']
 
     out['Returns_1d'] = np.insert(np.diff(np.log(c)), 0, 0)
-    out['Returns_5d'] = np.nan
-    out['Returns_20d'] = np.nan
-    for i in range(5, n):
-        out.iloc[i, out.columns.get_loc('Returns_5d')] = np.log(c[i] / c[i - 5])
-    for i in range(20, n):
-        out.iloc[i, out.columns.get_loc('Returns_20d')] = np.log(c[i] / c[i - 20])
+    ret5 = np.full(n, np.nan)
+    ret20 = np.full(n, np.nan)
+    ret5[5:] = np.log(c[5:] / c[:-5])
+    ret20[20:] = np.log(c[20:] / c[:-20])
+    out['Returns_5d'] = ret5
+    out['Returns_20d'] = ret20
 
     vol20 = np.full(n, np.nan)
     rets = np.diff(np.log(c))
@@ -148,7 +148,8 @@ def compute_indicators(df):
 
     out['GoldSilverRatio'] = np.nan
 
-    return out.dropna()
+    cols_to_check = [c for c in out.columns if c != 'GoldSilverRatio']
+    return out.dropna(subset=cols_to_check)
 
 # =============================================================
 # DLINEAR MODEL
