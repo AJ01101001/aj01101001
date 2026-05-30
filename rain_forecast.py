@@ -234,6 +234,61 @@ def generate_synthetic_weather(start, end, seed=42):
     }).set_index('date')
 
 
+def fetch_real_pwat(requests):
+    """Fetch real PWAT from Open-Meteo ERA5 (hourly, averaged to daily)."""
+    import time
+    all_pwat = []
+    start = pd.Timestamp(DATE_START)
+    end = pd.Timestamp(DATE_END)
+
+    chunk_start = start
+    while chunk_start < end:
+        chunk_end = min(chunk_start + pd.DateOffset(years=2) - pd.DateOffset(days=1), end)
+        url = (
+            f'https://archive-api.open-meteo.com/v1/archive?'
+            f'latitude={LAT}&longitude={LON}'
+            f'&start_date={chunk_start.strftime("%Y-%m-%d")}'
+            f'&end_date={chunk_end.strftime("%Y-%m-%d")}'
+            f'&hourly=total_column_integrated_water_vapour'
+            f'&timezone=America/New_York'
+        )
+
+        for attempt in range(4):
+            try:
+                resp = requests.get(url, timeout=60)
+                if resp.status_code == 429:
+                    wait = 2 ** (attempt + 1)
+                    print(f'    Rate limited, waiting {wait}s...')
+                    time.sleep(wait)
+                    continue
+                if resp.status_code != 200:
+                    break
+                data = resp.json()
+                hourly = data.get('hourly', {})
+                if 'time' not in hourly:
+                    break
+                hdf = pd.DataFrame({
+                    'time': pd.to_datetime(hourly['time']),
+                    'pwat_real': hourly.get('total_column_integrated_water_vapour'),
+                })
+                hdf = hdf.set_index('time')
+                daily_pwat = hdf.resample('D').mean()
+                all_pwat.append(daily_pwat)
+                print(f'    PWAT {chunk_start.strftime("%Y")}–{chunk_end.strftime("%Y")}: {len(daily_pwat)} days')
+                break
+            except Exception as e:
+                if attempt < 3:
+                    time.sleep(2 ** (attempt + 1))
+                else:
+                    print(f'    PWAT fetch failed: {e}')
+
+        chunk_start = chunk_end + pd.DateOffset(days=1)
+
+    if all_pwat:
+        return pd.concat(all_pwat)
+    return None
+
+
 def fetch_weather_data():
     if USE_SYNTHETIC:
         return generate_synthetic_weather(DATE_START, DATE_END)
@@ -310,6 +365,15 @@ def fetch_weather_data():
     df = pd.concat(all_data, ignore_index=True).set_index('date')
     df = df.apply(pd.to_numeric, errors='coerce')
 
+    # fetch real PWAT (ERA5 total column integrated water vapour)
+    print('  Fetching real PWAT from ERA5 reanalysis...')
+    pwat_data = fetch_real_pwat(requests)
+    if pwat_data is not None and len(pwat_data) > 0:
+        df = df.join(pwat_data, how='left')
+        print(f'    Real PWAT: {df["pwat_real"].notna().sum()} days matched')
+    else:
+        df['pwat_real'] = np.nan
+
     if 'dewpoint_mean' in df.columns:
         df['pwat_est'] = estimate_pwat_from_dewpoint(df['dewpoint_mean'])
     elif 'humidity_mean' in df.columns and 'temp_mean' in df.columns:
@@ -317,6 +381,12 @@ def fetch_weather_data():
         df['pwat_est'] = estimate_pwat_from_dewpoint(td_est)
     else:
         df['pwat_est'] = np.nan
+
+    # use real PWAT where available, fall back to estimate
+    if 'pwat_real' in df.columns:
+        df['pwat_best'] = df['pwat_real'].fillna(df['pwat_est'])
+    else:
+        df['pwat_best'] = df['pwat_est']
 
     return df.dropna(subset=['precipitation', 'temp_mean'])
 
@@ -384,17 +454,20 @@ def build_features(df):
     if 'pwat_est' not in df.columns and 'dewpoint_mean' in df.columns:
         df['pwat_est'] = estimate_pwat_from_dewpoint(df['dewpoint_mean'])
 
+    # use pwat_best (real ERA5 PWAT where available, fallback to dew point estimate)
+    pwat_col = 'pwat_best' if 'pwat_best' in df.columns else 'pwat_est'
+
     # lagged features (yesterday's values)
-    for col in ['temp_mean', 'pwat_est', 'precipitation']:
+    for col in ['temp_mean', pwat_col, 'precipitation']:
         if col in df.columns:
             df[f'{col}_lag1'] = df[col].shift(1)
             df[f'{col}_lag2'] = df[col].shift(2)
             df[f'{col}_lag3'] = df[col].shift(3)
 
-    if 'pwat_est' in df.columns:
-        df['pwat_rolling3'] = df['pwat_est'].rolling(3).mean()
-        df['pwat_rolling7'] = df['pwat_est'].rolling(7).mean()
-        df['pwat_change'] = df['pwat_est'] - df['pwat_est'].shift(1)
+    if pwat_col in df.columns:
+        df['pwat_rolling3'] = df[pwat_col].rolling(3).mean()
+        df['pwat_rolling7'] = df[pwat_col].rolling(7).mean()
+        df['pwat_change'] = df[pwat_col] - df[pwat_col].shift(1)
 
     if 'temp_mean' in df.columns:
         df['temp_rolling3'] = df['temp_mean'].rolling(3).mean()
@@ -466,7 +539,7 @@ LEAK_COLS = [
     'lunar_name', 'lunar_phase', 'date',
     'precip_hours', 'temp_mean', 'temp_max', 'temp_min',
     'dewpoint_mean', 'humidity_mean', 'wind_max',
-    'pwat_est', 'rain_2day_sum',
+    'pwat_est', 'pwat_real', 'pwat_best', 'rain_2day_sum',
     'pressure_msl', 'surface_pressure',
     'cloud_cover', 'solar_radiation',
     'wind_direction', 'evapotranspiration',
@@ -770,8 +843,10 @@ def predict_today(model_results, yesterday_pwat, yesterday_temp, today_date, df)
     today_row['season_sin'] = np.sin(2 * np.pi * today_row['day_of_year'] / 365.25)
     today_row['season_cos'] = np.cos(2 * np.pi * today_row['day_of_year'] / 365.25)
     today_row['month'] = today_date.month
+    today_row['pwat_best'] = yesterday_pwat
     today_row['pwat_est'] = yesterday_pwat
     today_row['temp_mean'] = yesterday_temp
+    today_row['pwat_best_lag1'] = yesterday_pwat
     today_row['pwat_est_lag1'] = yesterday_pwat
     today_row['temp_mean_lag1'] = yesterday_temp
 
@@ -1022,6 +1097,9 @@ def main():
     rain_days = (df['precipitation'] > 0.1).sum()
     print(f'  Rain days: {rain_days} ({rain_days/len(df)*100:.1f}%)')
     print(f'  Avg precipitation: {df["precipitation"].mean():.2f} mm/day')
+    if 'pwat_real' in df.columns:
+        real_count = df['pwat_real'].notna().sum()
+        print(f'  Real PWAT (ERA5): {real_count} days ({real_count/len(df)*100:.0f}% coverage)')
 
     print('\nBuilding features...')
     df_feat = build_features(df)
@@ -1086,7 +1164,9 @@ def main():
 
     # today's prediction
     today = datetime.now()
-    if 'pwat_est' in df.columns:
+    if 'pwat_best' in df.columns:
+        yesterday_pwat = df['pwat_best'].iloc[-1]
+    elif 'pwat_est' in df.columns:
         yesterday_pwat = df['pwat_est'].iloc[-1]
     else:
         yesterday_pwat = 25.0
