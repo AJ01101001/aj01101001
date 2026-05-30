@@ -672,7 +672,17 @@ def build_features(df):
 
     df['will_rain'] = (df['precipitation'] > 0.1).astype(int)
 
-    return df.dropna()
+    # core columns must be non-NaN; fill gaps in optional features
+    core_cols = ['will_rain', 'precipitation', 'season_sin', 'season_cos',
+                 'temp_change', 'pwat_change', 'rained_yesterday']
+    optional_fill = [c for c in df.columns if c not in core_cols
+                     and df[c].dtype in ['float64', 'int64', 'int32', 'float32']]
+    for col in optional_fill:
+        if df[col].isna().any():
+            df[col] = df[col].fillna(0)
+    df = df.dropna(subset=core_cols)
+
+    return df
 
 # =============================================================
 # MODEL
