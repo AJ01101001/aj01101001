@@ -576,6 +576,9 @@ def build_features(df):
     if 'temp_mean' in df.columns:
         df['temp_rolling3'] = df['temp_mean'].rolling(3).mean()
         df['temp_change'] = df['temp_mean'] - df['temp_mean'].shift(1)
+        df['temp_change_3d'] = df['temp_mean'].shift(1) - df['temp_mean'].shift(4)
+        df['temp_accel'] = df['temp_change'] - (df['temp_mean'].shift(1) - df['temp_mean'].shift(2))
+        df['temp_dropping_fast'] = (df['temp_change_3d'] < -5).astype(int)
 
     if 'precip_hours' in df.columns:
         df['precip_hours_lag1'] = df['precip_hours'].shift(1)
@@ -637,9 +640,11 @@ def build_features(df):
         cloud_col = f'{prefix}_cloud'
         humidity_col = f'{prefix}_humidity'
 
+        temp_col = f'{prefix}_temp'
         if precip_col in df.columns:
             df[f'{prefix}_precip_lag1'] = df[precip_col].shift(1)
             df[f'{prefix}_rained_yest'] = (df[precip_col].shift(1) > 0.1).astype(int)
+            df[f'{prefix}_precip_lag2'] = df[precip_col].shift(2)
         if pressure_col in df.columns:
             df[f'{prefix}_pressure_lag1'] = df[pressure_col].shift(1)
             df[f'{prefix}_pressure_drop'] = df[pressure_col].shift(1) - df[pressure_col].shift(2)
@@ -647,6 +652,9 @@ def build_features(df):
             df[f'{prefix}_cloud_lag1'] = df[cloud_col].shift(1)
         if humidity_col in df.columns:
             df[f'{prefix}_humidity_lag1'] = df[humidity_col].shift(1)
+        if temp_col in df.columns:
+            df[f'{prefix}_temp_lag1'] = df[temp_col].shift(1)
+            df[f'{prefix}_temp_change'] = df[temp_col].shift(1) - df[temp_col].shift(2)
 
     df['will_rain'] = (df['precipitation'] > 0.1).astype(int)
 
