@@ -331,17 +331,31 @@ def fetch_weather_data():
     if os.path.exists(cache_file) and not FORCE_REFRESH:
         print('  Loading from cache...')
         df = pd.read_csv(cache_file, index_col='date', parse_dates=True)
-        # if PWAT wasn't in the cache, try loading it from its own cache
-        if 'pwat_real' not in df.columns and os.path.exists(pwat_cache):
-            pwat_df = pd.read_csv(pwat_cache, index_col=0, parse_dates=True)
-            pwat_df.index.name = None
-            df = df.join(pwat_df, how='left')
+        # if PWAT wasn't in the cache, try loading or fetching it
+        if 'pwat_real' not in df.columns or df.get('pwat_real', pd.Series()).notna().sum() == 0:
+            if os.path.exists(pwat_cache):
+                pwat_df = pd.read_csv(pwat_cache, index_col=0, parse_dates=True)
+                pwat_df.index.name = None
+                df = df.join(pwat_df, how='left')
+                print(f'    PWAT merged from separate cache')
+            else:
+                try:
+                    import requests
+                    print('  PWAT missing from cache — attempting fetch...')
+                    pwat_data = fetch_real_pwat(requests)
+                    if pwat_data is not None and len(pwat_data) > 0:
+                        df = df.join(pwat_data, how='left')
+                        print(f'    Real PWAT: {df["pwat_real"].notna().sum()} days matched')
+                except Exception as e:
+                    print(f'    PWAT fetch failed: {e}')
+            if 'pwat_real' not in df.columns:
+                df['pwat_real'] = np.nan
             if 'dewpoint_mean' in df.columns:
                 df['pwat_est'] = estimate_pwat_from_dewpoint(df['dewpoint_mean'])
             else:
                 df['pwat_est'] = np.nan
             df['pwat_best'] = df['pwat_real'].fillna(df['pwat_est']) if 'pwat_real' in df.columns else df.get('pwat_est', np.nan)
-            print(f'    PWAT merged from separate cache')
+            df.to_csv(cache_file)
         print(f'    Cached: {len(df)} days')
         return df
 
