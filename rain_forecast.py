@@ -260,7 +260,11 @@ def fetch_weather_data():
             f'&end_date={chunk_end.strftime("%Y-%m-%d")}'
             f'&daily=temperature_2m_mean,temperature_2m_max,temperature_2m_min,'
             f'dewpoint_2m_mean,precipitation_sum,rain_sum,snowfall_sum,'
-            f'precipitation_hours,wind_speed_10m_max,relative_humidity_2m_mean'
+            f'precipitation_hours,wind_speed_10m_max,relative_humidity_2m_mean,'
+            f'pressure_msl_mean,surface_pressure_mean,'
+            f'cloud_cover_mean,shortwave_radiation_sum,'
+            f'wind_direction_10m_dominant,'
+            f'et0_fao_evapotranspiration'
             f'&timezone=America/New_York'
         )
 
@@ -288,6 +292,12 @@ def fetch_weather_data():
             'precip_hours': daily.get('precipitation_hours'),
             'wind_max': daily.get('wind_speed_10m_max'),
             'humidity_mean': daily.get('relative_humidity_2m_mean'),
+            'pressure_msl': daily.get('pressure_msl_mean'),
+            'surface_pressure': daily.get('surface_pressure_mean'),
+            'cloud_cover': daily.get('cloud_cover_mean'),
+            'solar_radiation': daily.get('shortwave_radiation_sum'),
+            'wind_direction': daily.get('wind_direction_10m_dominant'),
+            'evapotranspiration': daily.get('et0_fao_evapotranspiration'),
         })
         all_data.append(chunk_df)
         print(f'    {chunk_start.strftime("%Y")}–{chunk_end.strftime("%Y")}: {len(chunk_df)} days')
@@ -399,6 +409,47 @@ def build_features(df):
     if 'wind_max' in df.columns:
         df['wind_lag1'] = df['wind_max'].shift(1)
 
+    # pressure features (biggest rain predictor we've been missing)
+    if 'pressure_msl' in df.columns:
+        df['pressure_lag1'] = df['pressure_msl'].shift(1)
+        df['pressure_change_1d'] = df['pressure_msl'].shift(1) - df['pressure_msl'].shift(2)
+        df['pressure_change_3d'] = df['pressure_msl'].shift(1) - df['pressure_msl'].shift(4)
+        df['pressure_rolling3'] = df['pressure_msl'].shift(1).rolling(3).mean()
+        df['pressure_falling'] = (df['pressure_change_1d'] < -1).astype(int)
+
+    # cloud cover
+    if 'cloud_cover' in df.columns:
+        df['cloud_lag1'] = df['cloud_cover'].shift(1)
+        df['cloud_change'] = df['cloud_cover'].shift(1) - df['cloud_cover'].shift(2)
+        df['cloud_rolling3'] = df['cloud_cover'].shift(1).rolling(3).mean()
+
+    # solar radiation (inverse proxy for cloud cover, but different info)
+    if 'solar_radiation' in df.columns:
+        df['solar_lag1'] = df['solar_radiation'].shift(1)
+        df['solar_change'] = df['solar_radiation'].shift(1) - df['solar_radiation'].shift(2)
+
+    # wind direction (key: S/SE winds bring ocean moisture to NYC)
+    if 'wind_direction' in df.columns:
+        wd = df['wind_direction'].shift(1)
+        df['wind_dir_lag1'] = wd
+        df['wind_from_south'] = ((wd >= 135) & (wd <= 225)).astype(int)
+        df['wind_from_east'] = ((wd >= 45) & (wd <= 135)).astype(int)
+        df['wind_dir_sin'] = np.sin(np.radians(wd))
+        df['wind_dir_cos'] = np.cos(np.radians(wd))
+
+    # evapotranspiration
+    if 'evapotranspiration' in df.columns:
+        df['et_lag1'] = df['evapotranspiration'].shift(1)
+
+    # dewpoint depression (temp - dewpoint = how far from saturation)
+    if 'dewpoint_mean' in df.columns and 'temp_mean' in df.columns:
+        df['dewpoint_depression_lag1'] = (df['temp_mean'] - df['dewpoint_mean']).shift(1)
+        df['dewpoint_depression_change'] = df['dewpoint_depression_lag1'] - (df['temp_mean'] - df['dewpoint_mean']).shift(2)
+
+    # temp range (big range = clear skies usually)
+    if 'temp_max' in df.columns and 'temp_min' in df.columns:
+        df['temp_range_lag1'] = (df['temp_max'] - df['temp_min']).shift(1)
+
     df['rained_yesterday'] = (df['precipitation'].shift(1) > 0.1).astype(int)
     df['rain_2day_sum'] = df['precipitation'].shift(1).rolling(2).sum()
 
@@ -416,6 +467,9 @@ LEAK_COLS = [
     'precip_hours', 'temp_mean', 'temp_max', 'temp_min',
     'dewpoint_mean', 'humidity_mean', 'wind_max',
     'pwat_est', 'rain_2day_sum',
+    'pressure_msl', 'surface_pressure',
+    'cloud_cover', 'solar_radiation',
+    'wind_direction', 'evapotranspiration',
     'Open', 'High', 'Low', 'Close', 'Volume',
     'BB_Middle', 'BB_Upper', 'BB_Lower', 'BB_Width',
 ]
