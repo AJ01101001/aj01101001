@@ -721,6 +721,7 @@ def walk_forward_backtest(df, n_folds=5):
             'y_prob': bin_prob,
             'y_amt_true': y_amt_te,
             'y_amt_pred': amt_pred,
+            'test_dates': test_dates,
         })
 
     return results
@@ -1250,6 +1251,58 @@ def main():
         print(f'    RMSE: {rain_rmse:.2f} mm')
         print(f'    R²:   {rain_r2:.3f}')
         print(f'    Avg actual rain on rainy days: {all_true_rain.mean():.2f} mm')
+
+    # seasonal accuracy breakdown
+    print(f'\n  {"="*65}')
+    print('  SEASONAL ACCURACY BREAKDOWN')
+    print(f'  {"="*65}')
+    season_names = {12: 'Winter', 1: 'Winter', 2: 'Winter',
+                    3: 'Spring', 4: 'Spring', 5: 'Spring',
+                    6: 'Summer', 7: 'Summer', 8: 'Summer',
+                    9: 'Fall', 10: 'Fall', 11: 'Fall'}
+    season_data = {}
+    for r in bt_results:
+        months = r['test_dates'].month
+        for season in ['Winter', 'Spring', 'Summer', 'Fall']:
+            mask = np.array([season_names[m] == season for m in months])
+            if mask.sum() < 10:
+                continue
+            if season not in season_data:
+                season_data[season] = {'true': [], 'pred': [], 'prob': [],
+                                       'amt_true': [], 'amt_pred': []}
+            season_data[season]['true'].extend(r['y_true'][mask])
+            season_data[season]['pred'].extend(r['y_pred'][mask])
+            season_data[season]['prob'].extend(r['y_prob'][mask])
+            season_data[season]['amt_true'].extend(r['y_amt_true'][mask])
+            season_data[season]['amt_pred'].extend(r['y_amt_pred'][mask])
+
+    print(f'\n  {"Season":>8s}  {"Days":>6s}  {"Acc":>6s}  {"Base":>6s}  '
+          f'{"Lift":>6s}  {"Rain%":>6s}  {"Prec":>5s}  {"Miss":>5s}  {"FAlrm":>5s}')
+    print('  ' + '-' * 75)
+    for season in ['Winter', 'Spring', 'Summer', 'Fall']:
+        if season not in season_data:
+            continue
+        sd = season_data[season]
+        y_t = np.array(sd['true'])
+        y_p = np.array(sd['pred'])
+        acc = accuracy_score(y_t, y_p)
+        base = max(y_t.mean(), 1 - y_t.mean())
+        lift = acc - base
+        rain_pct = y_t.mean()
+        # precision and miss rate
+        tp = ((y_p == 1) & (y_t == 1)).sum()
+        fp = ((y_p == 1) & (y_t == 0)).sum()
+        fn = ((y_p == 0) & (y_t == 1)).sum()
+        precision = tp / (tp + fp) if (tp + fp) > 0 else 0
+        miss_rate = fn / (fn + tp) if (fn + tp) > 0 else 0
+        false_alarm = fp / (fp + tp) if (fp + tp) > 0 else 0
+        print(f'  {season:>8s}  {len(y_t):>6d}  {acc*100:>5.1f}%  {base*100:>5.1f}%  '
+              f'{lift*100:>+5.1f}%  {rain_pct*100:>5.1f}%  '
+              f'{precision*100:>4.0f}%  {miss_rate*100:>4.0f}%  {false_alarm*100:>4.0f}%')
+
+    print(f'\n  Prec = precision (of rain predictions, how many were correct)')
+    print(f'  Miss = miss rate (of actual rain days, how many did we miss)')
+    print(f'  FAlrm = false alarm rate (of rain predictions, how many were wrong)')
 
     plot_dashboard(df_feat, model_results, lunar_results, prediction)
     print('\nDone. Open rain_forecast.png')
