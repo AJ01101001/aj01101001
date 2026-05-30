@@ -277,9 +277,10 @@ def fetch_real_pwat(requests):
             f'&STNM={station}'
         )
 
+        headers = {'User-Agent': 'Mozilla/5.0 (compatible; weather-research)'}
         for attempt in range(3):
             try:
-                resp = requests.get(url, timeout=60)
+                resp = requests.get(url, timeout=60, headers=headers)
                 if resp.status_code == 200:
                     break
                 time.sleep(5)
