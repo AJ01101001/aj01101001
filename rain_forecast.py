@@ -550,6 +550,20 @@ def build_features(df):
         print(f'      Mars-Saturn aspects: {len(all_ms_aspects)} '
               f'(conj={len(ms_conj)}, square={len(ms_square)}, opp={len(ms_opposition)})')
 
+        # planetary × PWAT interactions — planets can only matter when moisture is present
+        pwat_for_interaction = df['pwat_best'].shift(1) if 'pwat_best' in df.columns else (
+            df['pwat_est'].shift(1) if 'pwat_est' in df.columns else None)
+        if pwat_for_interaction is not None:
+            pwat_high = (pwat_for_interaction > pwat_for_interaction.quantile(0.6)).astype(int)
+            df['venus_cross_x_pwat'] = df['venus_near_crossing'] * pwat_for_interaction
+            df['venus_cross_x_pwat_high'] = df['venus_near_crossing'] * pwat_high
+            df['venus_conj_x_pwat'] = df['venus_near_conj'] * pwat_for_interaction
+            df['mercury_cross_x_pwat'] = df['mercury_near_crossing'] * pwat_for_interaction
+            df['mars_saturn_x_pwat'] = df['mars_saturn_near_aspect'] * pwat_for_interaction
+            df['mars_saturn_x_pwat_high'] = df['mars_saturn_near_aspect'] * pwat_high
+            df['venus_dec_x_pwat'] = df['venus_abs_dec'] * pwat_for_interaction
+            df['mercury_dec_x_pwat'] = df['mercury_abs_dec'] * pwat_for_interaction
+
     df['day_of_year'] = df.index.dayofyear
     df['season_sin'] = np.sin(2 * np.pi * df['day_of_year'] / 365.25)
     df['season_cos'] = np.cos(2 * np.pi * df['day_of_year'] / 365.25)
