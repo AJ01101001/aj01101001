@@ -670,7 +670,7 @@ def walk_forward_backtest(df, n_folds=5):
         train_end = fold_size * (fold + 2)
         test_start = train_end
         test_end = min(test_start + fold_size, len(X))
-        if test_end <= test_start:
+        if test_end - test_start < 30:
             continue
 
         X_tr, X_te = X[:train_end], X[test_start:test_end]
