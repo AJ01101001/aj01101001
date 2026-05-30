@@ -323,39 +323,50 @@ def fetch_weather_data():
             f'&timezone=America/New_York'
         )
 
-        resp = requests.get(url, timeout=30)
-        if resp.status_code != 200:
-            print(f'  API error {resp.status_code}: {resp.text[:200]}')
-            chunk_start = chunk_end + pd.DateOffset(days=1)
-            continue
+        import time as _time
+        got_data = False
+        for attempt in range(4):
+            resp = requests.get(url, timeout=60)
+            if resp.status_code == 429:
+                wait = 2 ** (attempt + 1)
+                print(f'    Rate limited, waiting {wait}s...')
+                _time.sleep(wait)
+                continue
+            if resp.status_code != 200:
+                print(f'  API error {resp.status_code}: {resp.text[:200]}')
+                break
 
-        data = resp.json()
-        daily = data.get('daily', {})
-        if not daily or 'time' not in daily:
-            chunk_start = chunk_end + pd.DateOffset(days=1)
-            continue
+            data = resp.json()
+            daily = data.get('daily', {})
+            if not daily or 'time' not in daily:
+                break
 
-        chunk_df = pd.DataFrame({
-            'date': pd.to_datetime(daily['time']),
-            'temp_mean': daily.get('temperature_2m_mean'),
-            'temp_max': daily.get('temperature_2m_max'),
-            'temp_min': daily.get('temperature_2m_min'),
-            'dewpoint_mean': daily.get('dewpoint_2m_mean'),
-            'precipitation': daily.get('precipitation_sum'),
-            'rain': daily.get('rain_sum'),
-            'snowfall': daily.get('snowfall_sum'),
-            'precip_hours': daily.get('precipitation_hours'),
-            'wind_max': daily.get('wind_speed_10m_max'),
-            'humidity_mean': daily.get('relative_humidity_2m_mean'),
-            'pressure_msl': daily.get('pressure_msl_mean'),
-            'surface_pressure': daily.get('surface_pressure_mean'),
-            'cloud_cover': daily.get('cloud_cover_mean'),
-            'solar_radiation': daily.get('shortwave_radiation_sum'),
-            'wind_direction': daily.get('wind_direction_10m_dominant'),
-            'evapotranspiration': daily.get('et0_fao_evapotranspiration'),
-        })
-        all_data.append(chunk_df)
-        print(f'    {chunk_start.strftime("%Y")}–{chunk_end.strftime("%Y")}: {len(chunk_df)} days')
+            chunk_df = pd.DataFrame({
+                'date': pd.to_datetime(daily['time']),
+                'temp_mean': daily.get('temperature_2m_mean'),
+                'temp_max': daily.get('temperature_2m_max'),
+                'temp_min': daily.get('temperature_2m_min'),
+                'dewpoint_mean': daily.get('dewpoint_2m_mean'),
+                'precipitation': daily.get('precipitation_sum'),
+                'rain': daily.get('rain_sum'),
+                'snowfall': daily.get('snowfall_sum'),
+                'precip_hours': daily.get('precipitation_hours'),
+                'wind_max': daily.get('wind_speed_10m_max'),
+                'humidity_mean': daily.get('relative_humidity_2m_mean'),
+                'pressure_msl': daily.get('pressure_msl_mean'),
+                'surface_pressure': daily.get('surface_pressure_mean'),
+                'cloud_cover': daily.get('cloud_cover_mean'),
+                'solar_radiation': daily.get('shortwave_radiation_sum'),
+                'wind_direction': daily.get('wind_direction_10m_dominant'),
+                'evapotranspiration': daily.get('et0_fao_evapotranspiration'),
+            })
+            all_data.append(chunk_df)
+            print(f'    {chunk_start.strftime("%Y")}–{chunk_end.strftime("%Y")}: {len(chunk_df)} days')
+            got_data = True
+            break
+
+        if not got_data and attempt == 3:
+            print(f'    Failed to fetch {chunk_start.strftime("%Y")}–{chunk_end.strftime("%Y")} after retries')
         chunk_start = chunk_end + pd.DateOffset(days=1)
 
     if not all_data:
