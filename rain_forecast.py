@@ -253,11 +253,13 @@ def fetch_real_pwat(requests):
             f'&timezone=America/New_York'
         )
 
+        if all_pwat:
+            time.sleep(5)
         for attempt in range(4):
             try:
                 resp = requests.get(url, timeout=60)
                 if resp.status_code == 429:
-                    wait = 2 ** (attempt + 1)
+                    wait = 30 * (attempt + 1)
                     print(f'    Rate limited, waiting {wait}s...')
                     time.sleep(wait)
                     continue
@@ -324,11 +326,13 @@ def fetch_weather_data():
         )
 
         import time as _time
+        if all_data:
+            _time.sleep(5)
         got_data = False
         for attempt in range(4):
             resp = requests.get(url, timeout=60)
             if resp.status_code == 429:
-                wait = 2 ** (attempt + 1)
+                wait = 30 * (attempt + 1)
                 print(f'    Rate limited, waiting {wait}s...')
                 _time.sleep(wait)
                 continue
