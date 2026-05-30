@@ -1308,6 +1308,69 @@ def main():
     print(f'  Miss = miss rate (of actual rain days, how many did we miss)')
     print(f'  FAlrm = false alarm rate (of rain predictions, how many were wrong)')
 
+    # error diagnosis: what rain are we missing?
+    print(f'\n  {"="*65}')
+    print('  ERROR DIAGNOSIS')
+    print(f'  {"="*65}')
+
+    all_true = np.concatenate([r['y_true'] for r in bt_results])
+    all_pred = np.concatenate([r['y_pred'] for r in bt_results])
+    all_prob = np.concatenate([r['y_prob'] for r in bt_results])
+    all_amt = np.concatenate([r['y_amt_true'] for r in bt_results])
+
+    # misses by rain intensity
+    missed = (all_pred == 0) & (all_true == 1)
+    caught = (all_pred == 1) & (all_true == 1)
+    print(f'\n  Rain we MISSED ({missed.sum()} days) vs CAUGHT ({caught.sum()} days):')
+    bins = [(0.1, 2, 'Light (0.1-2mm)'),
+            (2, 5, 'Moderate (2-5mm)'),
+            (5, 15, 'Heavy (5-15mm)'),
+            (15, 999, 'Extreme (15mm+)')]
+    print(f'    {"Intensity":>20s}  {"Caught":>8s}  {"Missed":>8s}  {"Catch%":>8s}')
+    print('    ' + '-' * 50)
+    for lo, hi, label in bins:
+        in_bin = (all_amt >= lo) & (all_amt < hi)
+        caught_in = (caught & in_bin).sum()
+        missed_in = (missed & in_bin).sum()
+        total_in = caught_in + missed_in
+        catch_pct = caught_in / total_in * 100 if total_in > 0 else 0
+        print(f'    {label:>20s}  {caught_in:>8d}  {missed_in:>8d}  {catch_pct:>7.0f}%')
+
+    # threshold tuning
+    print(f'\n  THRESHOLD TUNING (default=0.50):')
+    print(f'    {"Thresh":>7s}  {"Acc":>6s}  {"Miss%":>6s}  {"FAlrm%":>7s}  {"RainPred":>9s}')
+    print('    ' + '-' * 45)
+    for thresh in [0.30, 0.35, 0.40, 0.45, 0.50, 0.55, 0.60]:
+        t_pred = (all_prob >= thresh).astype(int)
+        t_acc = accuracy_score(all_true, t_pred)
+        tp = ((t_pred == 1) & (all_true == 1)).sum()
+        fp = ((t_pred == 1) & (all_true == 0)).sum()
+        fn = ((t_pred == 0) & (all_true == 1)).sum()
+        t_miss = fn / (fn + tp) * 100 if (fn + tp) > 0 else 0
+        t_fa = fp / (fp + tp) * 100 if (fp + tp) > 0 else 0
+        rain_preds = t_pred.sum()
+        print(f'    {thresh:>7.2f}  {t_acc*100:>5.1f}%  {t_miss:>5.1f}%  {t_fa:>6.1f}%  {rain_preds:>9d}')
+
+    # monthly breakdown
+    print(f'\n  MONTHLY ACCURACY:')
+    all_dates = np.concatenate([r['test_dates'] for r in bt_results])
+    all_months = pd.DatetimeIndex(all_dates).month
+    print(f'    {"Month":>5s}  {"Acc":>6s}  {"Miss%":>6s}  {"Rain%":>6s}  {"Days":>5s}')
+    print('    ' + '-' * 35)
+    for m in range(1, 13):
+        mask = all_months == m
+        if mask.sum() < 10:
+            continue
+        m_acc = accuracy_score(all_true[mask], all_pred[mask])
+        m_tp = ((all_pred[mask] == 1) & (all_true[mask] == 1)).sum()
+        m_fn = ((all_pred[mask] == 0) & (all_true[mask] == 1)).sum()
+        m_miss = m_fn / (m_fn + m_tp) * 100 if (m_fn + m_tp) > 0 else 0
+        m_rain = all_true[mask].mean()
+        month_name = ['Jan','Feb','Mar','Apr','May','Jun',
+                      'Jul','Aug','Sep','Oct','Nov','Dec'][m-1]
+        print(f'    {month_name:>5s}  {m_acc*100:>5.1f}%  {m_miss:>5.1f}%  '
+              f'{m_rain*100:>5.1f}%  {mask.sum():>5d}')
+
     plot_dashboard(df_feat, model_results, lunar_results, prediction)
     print('\nDone. Open rain_forecast.png')
 
