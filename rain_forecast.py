@@ -266,12 +266,12 @@ def fetch_real_pwat(requests):
         )
 
         if all_pwat:
-            time.sleep(5)
+            time.sleep(45)
         for attempt in range(4):
             try:
                 resp = requests.get(url, timeout=60)
                 if resp.status_code == 429:
-                    wait = 30 * (attempt + 1)
+                    wait = 60 * (attempt + 1)
                     print(f'    Rate limited, waiting {wait}s...')
                     time.sleep(wait)
                     continue
@@ -347,12 +347,12 @@ def fetch_weather_data():
 
         import time as _time
         if all_data:
-            _time.sleep(5)
+            _time.sleep(45)
         got_data = False
         for attempt in range(4):
             resp = requests.get(url, timeout=60)
             if resp.status_code == 429:
-                wait = 30 * (attempt + 1)
+                wait = 60 * (attempt + 1)
                 print(f'    Rate limited, waiting {wait}s...')
                 _time.sleep(wait)
                 continue
@@ -455,7 +455,10 @@ def fetch_upstream_data():
     )
     all_upstream = {}
 
-    for prefix, info in UPSTREAM_STATIONS.items():
+    for i, (prefix, info) in enumerate(UPSTREAM_STATIONS.items()):
+        if i > 0:
+            print(f'    Pausing 60s between stations...')
+            _time.sleep(60)
         station_data = []
         start = pd.Timestamp(DATE_START)
         end = pd.Timestamp(DATE_END)
@@ -473,12 +476,12 @@ def fetch_upstream_data():
             )
 
             if station_data:
-                _time.sleep(5)
+                _time.sleep(45)
             for attempt in range(4):
                 try:
                     resp = requests.get(url, timeout=60)
                     if resp.status_code == 429:
-                        wait = 30 * (attempt + 1)
+                        wait = 60 * (attempt + 1)
                         print(f'    Rate limited, waiting {wait}s...')
                         _time.sleep(wait)
                         continue
@@ -1287,6 +1290,11 @@ def main():
         print(f'  Real PWAT (ERA5): {real_count} days ({real_count/len(df)*100:.0f}% coverage)')
 
     # fetch upstream station data
+    upstream_cache = os.path.join(CACHE_DIR, 'upstream.csv')
+    if not os.path.exists(upstream_cache) or FORCE_REFRESH:
+        import time as _time_main
+        print('  Pausing 60s before upstream fetch to avoid rate limits...')
+        _time_main.sleep(60)
     upstream = fetch_upstream_data()
     if upstream is not None:
         df = df.join(upstream, how='left')
