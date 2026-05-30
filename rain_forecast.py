@@ -249,6 +249,14 @@ def generate_synthetic_weather(start, end, seed=42):
 def fetch_real_pwat(requests):
     """Fetch real PWAT from Open-Meteo ERA5 (hourly, averaged to daily)."""
     import time
+    os.makedirs(CACHE_DIR, exist_ok=True)
+    cache_file = os.path.join(CACHE_DIR, 'pwat.csv')
+    if os.path.exists(cache_file) and not FORCE_REFRESH:
+        df = pd.read_csv(cache_file, index_col=0, parse_dates=True)
+        df.index.name = None
+        print(f'    PWAT loaded from cache ({len(df)} days)')
+        return df
+
     all_pwat = []
     start = pd.Timestamp(DATE_START)
     end = pd.Timestamp(DATE_END)
@@ -267,7 +275,8 @@ def fetch_real_pwat(requests):
 
         if all_pwat:
             time.sleep(45)
-        for attempt in range(5):
+        got_chunk = False
+        for attempt in range(3):
             try:
                 resp = requests.get(url, timeout=120)
                 if resp.status_code == 429:
@@ -289,17 +298,26 @@ def fetch_real_pwat(requests):
                 daily_pwat = hdf.resample('D').mean()
                 all_pwat.append(daily_pwat)
                 print(f'    PWAT {chunk_start.strftime("%Y")}–{chunk_end.strftime("%Y")}: {len(daily_pwat)} days')
+                got_chunk = True
                 break
             except Exception as e:
-                if attempt < 4:
+                if attempt < 2:
                     time.sleep(30)
                 else:
                     print(f'    PWAT fetch failed: {e}')
 
+        if not got_chunk:
+            print(f'    Skipping PWAT {chunk_start.strftime("%Y")}–{chunk_end.strftime("%Y")} (rate limited, will use estimate)')
+            break
+
         chunk_start = chunk_end + pd.DateOffset(days=1)
 
     if all_pwat:
-        return pd.concat(all_pwat)
+        result = pd.concat(all_pwat)
+        result.to_csv(cache_file)
+        print(f'    PWAT cached ({len(result)} days)')
+        return result
+    print('    PWAT unavailable — using dewpoint estimate instead')
     return None
 
 
@@ -309,9 +327,21 @@ def fetch_weather_data():
 
     os.makedirs(CACHE_DIR, exist_ok=True)
     cache_file = os.path.join(CACHE_DIR, 'nyc_weather.csv')
+    pwat_cache = os.path.join(CACHE_DIR, 'pwat.csv')
     if os.path.exists(cache_file) and not FORCE_REFRESH:
         print('  Loading from cache...')
         df = pd.read_csv(cache_file, index_col='date', parse_dates=True)
+        # if PWAT wasn't in the cache, try loading it from its own cache
+        if 'pwat_real' not in df.columns and os.path.exists(pwat_cache):
+            pwat_df = pd.read_csv(pwat_cache, index_col=0, parse_dates=True)
+            pwat_df.index.name = None
+            df = df.join(pwat_df, how='left')
+            if 'dewpoint_mean' in df.columns:
+                df['pwat_est'] = estimate_pwat_from_dewpoint(df['dewpoint_mean'])
+            else:
+                df['pwat_est'] = np.nan
+            df['pwat_best'] = df['pwat_real'].fillna(df['pwat_est']) if 'pwat_real' in df.columns else df.get('pwat_est', np.nan)
+            print(f'    PWAT merged from separate cache')
         print(f'    Cached: {len(df)} days')
         return df
 
@@ -381,8 +411,15 @@ def fetch_weather_data():
 
     df = df.set_index('date')
     df = df.apply(pd.to_numeric, errors='coerce')
+    df = df.dropna(subset=['precipitation', 'temp_mean'])
 
-    # fetch real PWAT (ERA5 total column integrated water vapour)
+    # save NYC weather cache immediately (don't lose it if PWAT fails)
+    df.to_csv(cache_file)
+    print(f'    NYC weather cached ({len(df)} days)')
+
+    # fetch real PWAT (ERA5 total column integrated water vapour) — separate cache
+    import time as _pwat_time
+    _pwat_time.sleep(45)
     print('  Fetching real PWAT from ERA5 reanalysis...')
     pwat_data = fetch_real_pwat(requests)
     if pwat_data is not None and len(pwat_data) > 0:
@@ -405,9 +442,8 @@ def fetch_weather_data():
     else:
         df['pwat_best'] = df['pwat_est']
 
-    df = df.dropna(subset=['precipitation', 'temp_mean'])
+    # re-save with PWAT columns added
     df.to_csv(cache_file)
-    print(f'    Saved to cache ({len(df)} days)')
     return df
 
 
