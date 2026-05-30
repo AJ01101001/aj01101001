@@ -314,7 +314,7 @@ def build_features(df):
     venus_dec = compute_venus_declination(df.index)
     df['venus_declination'] = venus_dec
     df['venus_days_since_crossing'] = days_since_venus_crossing(df.index, venus_dec)
-    df['venus_near_crossing'] = (df['venus_days_since_crossing'] <= 5).astype(int)
+    df['venus_near_crossing'] = (df['venus_days_since_crossing'] <= 2).astype(int)
     df['venus_abs_dec'] = np.abs(venus_dec)
 
     df['day_of_year'] = df.index.dayofyear
@@ -1000,7 +1000,7 @@ def main():
     print(f'  Significant: {sig_venus}')
 
     vp = venus_results['proximity']
-    print(f'\n  Rain probability near Venus crossing (±5 days):')
+    print(f'\n  Rain probability near Venus crossing (±2 days):')
     print(f'    Near crossing: {vp["near_crossing"]["rain_prob"]*100:.1f}%  ({vp["near_crossing"]["n"]} days)')
     print(f'    Away:          {vp["away"]["rain_prob"]*100:.1f}%  ({vp["away"]["n"]} days)')
 
