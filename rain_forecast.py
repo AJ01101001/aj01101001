@@ -255,7 +255,7 @@ def fetch_real_pwat(requests):
 
     chunk_start = start
     while chunk_start < end:
-        chunk_end = min(chunk_start + pd.DateOffset(years=2) - pd.DateOffset(days=1), end)
+        chunk_end = min(chunk_start + pd.DateOffset(years=5) - pd.DateOffset(days=1), end)
         url = (
             f'https://archive-api.open-meteo.com/v1/archive?'
             f'latitude={LAT}&longitude={LON}'
@@ -329,7 +329,7 @@ def fetch_weather_data():
 
     chunk_start = start
     while chunk_start < end:
-        chunk_end = min(chunk_start + pd.DateOffset(years=5) - pd.DateOffset(days=1), end)
+        chunk_end = min(chunk_start + pd.DateOffset(years=10) - pd.DateOffset(days=1), end)
         url = (
             f'https://archive-api.open-meteo.com/v1/archive?'
             f'latitude={LAT}&longitude={LON}'
@@ -462,7 +462,7 @@ def fetch_upstream_data():
         chunk_start = start
 
         while chunk_start < end:
-            chunk_end = min(chunk_start + pd.DateOffset(years=5) - pd.DateOffset(days=1), end)
+            chunk_end = min(chunk_start + pd.DateOffset(years=10) - pd.DateOffset(days=1), end)
             url = (
                 f'https://archive-api.open-meteo.com/v1/archive?'
                 f'latitude={info["lat"]}&longitude={info["lon"]}'
