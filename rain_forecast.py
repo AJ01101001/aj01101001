@@ -255,7 +255,7 @@ def fetch_real_pwat(requests):
 
     chunk_start = start
     while chunk_start < end:
-        chunk_end = min(chunk_start + pd.DateOffset(years=5) - pd.DateOffset(days=1), end)
+        chunk_end = min(chunk_start + pd.DateOffset(years=13) - pd.DateOffset(days=1), end)
         url = (
             f'https://archive-api.open-meteo.com/v1/archive?'
             f'latitude={LAT}&longitude={LON}'
@@ -267,9 +267,9 @@ def fetch_real_pwat(requests):
 
         if all_pwat:
             time.sleep(45)
-        for attempt in range(4):
+        for attempt in range(5):
             try:
-                resp = requests.get(url, timeout=60)
+                resp = requests.get(url, timeout=120)
                 if resp.status_code == 429:
                     wait = 60 * (attempt + 1)
                     print(f'    Rate limited, waiting {wait}s...')
@@ -291,8 +291,8 @@ def fetch_real_pwat(requests):
                 print(f'    PWAT {chunk_start.strftime("%Y")}–{chunk_end.strftime("%Y")}: {len(daily_pwat)} days')
                 break
             except Exception as e:
-                if attempt < 3:
-                    time.sleep(2 ** (attempt + 1))
+                if attempt < 4:
+                    time.sleep(30)
                 else:
                     print(f'    PWAT fetch failed: {e}')
 
@@ -322,82 +322,64 @@ def fetch_weather_data():
         sys.exit(1)
 
     print('  Fetching from Open-Meteo API...')
+    import time as _time
 
-    all_data = []
-    start = pd.Timestamp(DATE_START)
-    end = pd.Timestamp(DATE_END)
+    url = (
+        f'https://archive-api.open-meteo.com/v1/archive?'
+        f'latitude={LAT}&longitude={LON}'
+        f'&start_date={DATE_START}&end_date={DATE_END}'
+        f'&daily=temperature_2m_mean,temperature_2m_max,temperature_2m_min,'
+        f'dewpoint_2m_mean,precipitation_sum,rain_sum,snowfall_sum,'
+        f'precipitation_hours,wind_speed_10m_max,relative_humidity_2m_mean,'
+        f'pressure_msl_mean,surface_pressure_mean,'
+        f'cloud_cover_mean,shortwave_radiation_sum,'
+        f'wind_direction_10m_dominant,'
+        f'et0_fao_evapotranspiration'
+        f'&timezone=America/New_York'
+    )
 
-    chunk_start = start
-    while chunk_start < end:
-        chunk_end = min(chunk_start + pd.DateOffset(years=10) - pd.DateOffset(days=1), end)
-        url = (
-            f'https://archive-api.open-meteo.com/v1/archive?'
-            f'latitude={LAT}&longitude={LON}'
-            f'&start_date={chunk_start.strftime("%Y-%m-%d")}'
-            f'&end_date={chunk_end.strftime("%Y-%m-%d")}'
-            f'&daily=temperature_2m_mean,temperature_2m_max,temperature_2m_min,'
-            f'dewpoint_2m_mean,precipitation_sum,rain_sum,snowfall_sum,'
-            f'precipitation_hours,wind_speed_10m_max,relative_humidity_2m_mean,'
-            f'pressure_msl_mean,surface_pressure_mean,'
-            f'cloud_cover_mean,shortwave_radiation_sum,'
-            f'wind_direction_10m_dominant,'
-            f'et0_fao_evapotranspiration'
-            f'&timezone=America/New_York'
-        )
-
-        import time as _time
-        if all_data:
-            _time.sleep(45)
-        got_data = False
-        for attempt in range(4):
-            resp = requests.get(url, timeout=60)
-            if resp.status_code == 429:
-                wait = 60 * (attempt + 1)
-                print(f'    Rate limited, waiting {wait}s...')
-                _time.sleep(wait)
-                continue
-            if resp.status_code != 200:
-                print(f'  API error {resp.status_code}: {resp.text[:200]}')
-                break
-
-            data = resp.json()
-            daily = data.get('daily', {})
-            if not daily or 'time' not in daily:
-                break
-
-            chunk_df = pd.DataFrame({
-                'date': pd.to_datetime(daily['time']),
-                'temp_mean': daily.get('temperature_2m_mean'),
-                'temp_max': daily.get('temperature_2m_max'),
-                'temp_min': daily.get('temperature_2m_min'),
-                'dewpoint_mean': daily.get('dewpoint_2m_mean'),
-                'precipitation': daily.get('precipitation_sum'),
-                'rain': daily.get('rain_sum'),
-                'snowfall': daily.get('snowfall_sum'),
-                'precip_hours': daily.get('precipitation_hours'),
-                'wind_max': daily.get('wind_speed_10m_max'),
-                'humidity_mean': daily.get('relative_humidity_2m_mean'),
-                'pressure_msl': daily.get('pressure_msl_mean'),
-                'surface_pressure': daily.get('surface_pressure_mean'),
-                'cloud_cover': daily.get('cloud_cover_mean'),
-                'solar_radiation': daily.get('shortwave_radiation_sum'),
-                'wind_direction': daily.get('wind_direction_10m_dominant'),
-                'evapotranspiration': daily.get('et0_fao_evapotranspiration'),
-            })
-            all_data.append(chunk_df)
-            print(f'    {chunk_start.strftime("%Y")}–{chunk_end.strftime("%Y")}: {len(chunk_df)} days')
-            got_data = True
+    df = None
+    for attempt in range(5):
+        resp = requests.get(url, timeout=120)
+        if resp.status_code == 429:
+            wait = 60 * (attempt + 1)
+            print(f'    Rate limited, waiting {wait}s...')
+            _time.sleep(wait)
+            continue
+        if resp.status_code != 200:
+            print(f'  API error {resp.status_code}: {resp.text[:200]}')
             break
+        data = resp.json()
+        daily = data.get('daily', {})
+        if not daily or 'time' not in daily:
+            break
+        df = pd.DataFrame({
+            'date': pd.to_datetime(daily['time']),
+            'temp_mean': daily.get('temperature_2m_mean'),
+            'temp_max': daily.get('temperature_2m_max'),
+            'temp_min': daily.get('temperature_2m_min'),
+            'dewpoint_mean': daily.get('dewpoint_2m_mean'),
+            'precipitation': daily.get('precipitation_sum'),
+            'rain': daily.get('rain_sum'),
+            'snowfall': daily.get('snowfall_sum'),
+            'precip_hours': daily.get('precipitation_hours'),
+            'wind_max': daily.get('wind_speed_10m_max'),
+            'humidity_mean': daily.get('relative_humidity_2m_mean'),
+            'pressure_msl': daily.get('pressure_msl_mean'),
+            'surface_pressure': daily.get('surface_pressure_mean'),
+            'cloud_cover': daily.get('cloud_cover_mean'),
+            'solar_radiation': daily.get('shortwave_radiation_sum'),
+            'wind_direction': daily.get('wind_direction_10m_dominant'),
+            'evapotranspiration': daily.get('et0_fao_evapotranspiration'),
+        })
+        print(f'    NYC weather: {len(df)} days')
+        break
 
-        if not got_data and attempt == 3:
-            print(f'    Failed to fetch {chunk_start.strftime("%Y")}–{chunk_end.strftime("%Y")} after retries')
-        chunk_start = chunk_end + pd.DateOffset(days=1)
-
-    if not all_data:
+    if df is None:
         print('  No data retrieved. Falling back to synthetic.')
         return generate_synthetic_weather(DATE_START, DATE_END)
 
-    df = pd.concat(all_data, ignore_index=True).set_index('date')
+    df = df.set_index('date')
     df = df.apply(pd.to_numeric, errors='coerce')
 
     # fetch real PWAT (ERA5 total column integrated water vapour)
@@ -457,61 +439,44 @@ def fetch_upstream_data():
 
     for i, (prefix, info) in enumerate(UPSTREAM_STATIONS.items()):
         if i > 0:
-            print(f'    Pausing 60s between stations...')
-            _time.sleep(60)
-        station_data = []
-        start = pd.Timestamp(DATE_START)
-        end = pd.Timestamp(DATE_END)
-        chunk_start = start
-
-        while chunk_start < end:
-            chunk_end = min(chunk_start + pd.DateOffset(years=10) - pd.DateOffset(days=1), end)
-            url = (
-                f'https://archive-api.open-meteo.com/v1/archive?'
-                f'latitude={info["lat"]}&longitude={info["lon"]}'
-                f'&start_date={chunk_start.strftime("%Y-%m-%d")}'
-                f'&end_date={chunk_end.strftime("%Y-%m-%d")}'
-                f'&daily={upstream_vars}'
-                f'&timezone=America/New_York'
-            )
-
-            if station_data:
-                _time.sleep(45)
-            for attempt in range(4):
-                try:
-                    resp = requests.get(url, timeout=60)
-                    if resp.status_code == 429:
-                        wait = 60 * (attempt + 1)
-                        print(f'    Rate limited, waiting {wait}s...')
-                        _time.sleep(wait)
-                        continue
-                    if resp.status_code != 200:
-                        break
-                    data = resp.json()
-                    daily = data.get('daily', {})
-                    if not daily or 'time' not in daily:
-                        break
-                    chunk_df = pd.DataFrame({
-                        'date': pd.to_datetime(daily['time']),
-                        f'{prefix}_precip': daily.get('precipitation_sum'),
-                        f'{prefix}_pressure': daily.get('pressure_msl_mean'),
-                        f'{prefix}_cloud': daily.get('cloud_cover_mean'),
-                        f'{prefix}_humidity': daily.get('relative_humidity_2m_mean'),
-                        f'{prefix}_temp': daily.get('temperature_2m_mean'),
-                        f'{prefix}_wind': daily.get('wind_speed_10m_max'),
-                    })
-                    station_data.append(chunk_df)
+            _time.sleep(45)
+        url = (
+            f'https://archive-api.open-meteo.com/v1/archive?'
+            f'latitude={info["lat"]}&longitude={info["lon"]}'
+            f'&start_date={DATE_START}&end_date={DATE_END}'
+            f'&daily={upstream_vars}'
+            f'&timezone=America/New_York'
+        )
+        for attempt in range(5):
+            try:
+                resp = requests.get(url, timeout=120)
+                if resp.status_code == 429:
+                    wait = 60 * (attempt + 1)
+                    print(f'    Rate limited, waiting {wait}s...')
+                    _time.sleep(wait)
+                    continue
+                if resp.status_code != 200:
                     break
-                except Exception:
-                    if attempt < 3:
-                        _time.sleep(30)
-            chunk_start = chunk_end + pd.DateOffset(days=1)
-
-        if station_data:
-            sdf = pd.concat(station_data, ignore_index=True).set_index('date')
-            sdf = sdf.apply(pd.to_numeric, errors='coerce')
-            all_upstream[prefix] = sdf
-            print(f'    {info["name"]}: {len(sdf)} days')
+                data = resp.json()
+                daily = data.get('daily', {})
+                if not daily or 'time' not in daily:
+                    break
+                sdf = pd.DataFrame({
+                    'date': pd.to_datetime(daily['time']),
+                    f'{prefix}_precip': daily.get('precipitation_sum'),
+                    f'{prefix}_pressure': daily.get('pressure_msl_mean'),
+                    f'{prefix}_cloud': daily.get('cloud_cover_mean'),
+                    f'{prefix}_humidity': daily.get('relative_humidity_2m_mean'),
+                    f'{prefix}_temp': daily.get('temperature_2m_mean'),
+                    f'{prefix}_wind': daily.get('wind_speed_10m_max'),
+                }).set_index('date')
+                sdf = sdf.apply(pd.to_numeric, errors='coerce')
+                all_upstream[prefix] = sdf
+                print(f'    {info["name"]}: {len(sdf)} days')
+                break
+            except Exception:
+                if attempt < 4:
+                    _time.sleep(30)
 
     if not all_upstream:
         return None
@@ -1293,8 +1258,8 @@ def main():
     upstream_cache = os.path.join(CACHE_DIR, 'upstream.csv')
     if not os.path.exists(upstream_cache) or FORCE_REFRESH:
         import time as _time_main
-        print('  Pausing 60s before upstream fetch to avoid rate limits...')
-        _time_main.sleep(60)
+        print('  Pausing 45s before upstream fetch to avoid rate limits...')
+        _time_main.sleep(45)
     upstream = fetch_upstream_data()
     if upstream is not None:
         df = df.join(upstream, how='left')
