@@ -247,8 +247,9 @@ def generate_synthetic_weather(start, end, seed=42):
 
 
 def fetch_real_pwat(requests):
-    """Fetch real PWAT from Open-Meteo ERA5 (hourly, averaged to daily)."""
+    """Fetch real PWAT from University of Wyoming radiosonde soundings (OKX/Upton, NY)."""
     import time
+    import re
     os.makedirs(CACHE_DIR, exist_ok=True)
     cache_file = os.path.join(CACHE_DIR, 'pwat.csv')
     if os.path.exists(cache_file) and not FORCE_REFRESH:
@@ -257,68 +258,74 @@ def fetch_real_pwat(requests):
         print(f'    PWAT loaded from cache ({len(df)} days)')
         return df
 
-    all_pwat = []
+    station = '72501'
     start = pd.Timestamp(DATE_START)
     end = pd.Timestamp(DATE_END)
+    all_records = []
 
-    chunk_start = start
-    while chunk_start < end:
-        chunk_end = min(chunk_start + pd.DateOffset(years=13) - pd.DateOffset(days=1), end)
+    months = pd.date_range(start, end, freq='MS')
+    total = len(months)
+    for i, month_start in enumerate(months):
+        year = month_start.year
+        month = month_start.month
+        last_day = (month_start + pd.offsets.MonthEnd(0)).day
         url = (
-            f'https://archive-api.open-meteo.com/v1/archive?'
-            f'latitude={LAT}&longitude={LON}'
-            f'&start_date={chunk_start.strftime("%Y-%m-%d")}'
-            f'&end_date={chunk_end.strftime("%Y-%m-%d")}'
-            f'&hourly=total_column_integrated_water_vapour'
-            f'&timezone=America/New_York'
+            f'https://weather.uwyo.edu/cgi-bin/sounding.py?'
+            f'region=naconf&TYPE=TEXT%3ALIST'
+            f'&YEAR={year}&MONTH={month:02d}'
+            f'&FROM=0100&TO={last_day:02d}12'
+            f'&STNM={station}'
         )
 
-        if all_pwat:
-            time.sleep(45)
-        got_chunk = False
         for attempt in range(3):
             try:
-                resp = requests.get(url, timeout=120)
-                if resp.status_code == 429:
-                    wait = 60 * (attempt + 1)
-                    print(f'    Rate limited, waiting {wait}s...')
-                    time.sleep(wait)
-                    continue
-                if resp.status_code != 200:
+                resp = requests.get(url, timeout=60)
+                if resp.status_code == 200:
                     break
-                data = resp.json()
-                hourly = data.get('hourly', {})
-                if 'time' not in hourly:
-                    break
-                hdf = pd.DataFrame({
-                    'time': pd.to_datetime(hourly['time']),
-                    'pwat_real': hourly.get('total_column_integrated_water_vapour'),
-                })
-                hdf = hdf.set_index('time')
-                daily_pwat = hdf.resample('D').mean()
-                all_pwat.append(daily_pwat)
-                print(f'    PWAT {chunk_start.strftime("%Y")}–{chunk_end.strftime("%Y")}: {len(daily_pwat)} days')
-                got_chunk = True
-                break
-            except Exception as e:
+                time.sleep(5)
+            except Exception:
                 if attempt < 2:
-                    time.sleep(30)
-                else:
-                    print(f'    PWAT fetch failed: {e}')
+                    time.sleep(5)
+        else:
+            continue
 
-        if not got_chunk:
-            print(f'    Skipping PWAT {chunk_start.strftime("%Y")}–{chunk_end.strftime("%Y")} (rate limited, will use estimate)')
-            break
+        if resp.status_code != 200:
+            continue
 
-        chunk_start = chunk_end + pd.DateOffset(days=1)
+        html = resp.text
+        obs_times = re.findall(
+            r'Observations at (\d{2})Z (\d{2}) (\w{3}) (\d{4})', html
+        )
+        pwat_values = re.findall(
+            r'Precipitable water \[mm\] for entire sounding:\s+([\d.]+)', html
+        )
 
-    if all_pwat:
-        result = pd.concat(all_pwat)
-        result.to_csv(cache_file)
-        print(f'    PWAT cached ({len(result)} days)')
-        return result
-    print('    PWAT unavailable — using dewpoint estimate instead')
-    return None
+        month_map = {'Jan': 1, 'Feb': 2, 'Mar': 3, 'Apr': 4, 'May': 5, 'Jun': 6,
+                     'Jul': 7, 'Aug': 8, 'Sep': 9, 'Oct': 10, 'Nov': 11, 'Dec': 12}
+
+        for (hour, day, mon_str, yr), pwat_str in zip(obs_times, pwat_values):
+            try:
+                dt = pd.Timestamp(int(yr), month_map[mon_str], int(day), int(hour))
+                all_records.append({'time': dt, 'pwat_real': float(pwat_str)})
+            except (ValueError, KeyError):
+                pass
+
+        if (i + 1) % 12 == 0 or i == total - 1:
+            print(f'    PWAT soundings: {year} done ({i+1}/{total} months)')
+        time.sleep(1.5)
+
+    if not all_records:
+        print('    PWAT unavailable — using dewpoint estimate instead')
+        return None
+
+    rdf = pd.DataFrame(all_records)
+    rdf = rdf.set_index('time')
+    daily_pwat = rdf.resample('D').mean()
+    daily_pwat = daily_pwat.dropna()
+
+    daily_pwat.to_csv(cache_file)
+    print(f'    PWAT cached ({len(daily_pwat)} days from soundings)')
+    return daily_pwat
 
 
 def fetch_weather_data():
@@ -431,10 +438,8 @@ def fetch_weather_data():
     df.to_csv(cache_file)
     print(f'    NYC weather cached ({len(df)} days)')
 
-    # fetch real PWAT (ERA5 total column integrated water vapour) — separate cache
-    import time as _pwat_time
-    _pwat_time.sleep(45)
-    print('  Fetching real PWAT from ERA5 reanalysis...')
+    # fetch real PWAT from University of Wyoming soundings — separate cache
+    print('  Fetching real PWAT from radiosonde soundings...')
     pwat_data = fetch_real_pwat(requests)
     if pwat_data is not None and len(pwat_data) > 0:
         df = df.join(pwat_data, how='left')
