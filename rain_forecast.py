@@ -1,4 +1,5 @@
 import sys
+import os
 import warnings
 import numpy as np
 import pandas as pd
@@ -24,6 +25,9 @@ DATE_START = '2000-01-01'
 DATE_END = '2026-05-29'
 
 TRAIN_SPLIT = 0.8
+
+CACHE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), '.weather_cache')
+FORCE_REFRESH = '--refresh' in sys.argv
 
 # Upstream cities — weather moves west/southwest → NYC
 UPSTREAM_STATIONS = {
@@ -303,6 +307,14 @@ def fetch_weather_data():
     if USE_SYNTHETIC:
         return generate_synthetic_weather(DATE_START, DATE_END)
 
+    os.makedirs(CACHE_DIR, exist_ok=True)
+    cache_file = os.path.join(CACHE_DIR, 'nyc_weather.csv')
+    if os.path.exists(cache_file) and not FORCE_REFRESH:
+        print('  Loading from cache...')
+        df = pd.read_csv(cache_file, index_col='date', parse_dates=True)
+        print(f'    Cached: {len(df)} days')
+        return df
+
     try:
         import requests
     except ImportError:
@@ -411,13 +423,24 @@ def fetch_weather_data():
     else:
         df['pwat_best'] = df['pwat_est']
 
-    return df.dropna(subset=['precipitation', 'temp_mean'])
+    df = df.dropna(subset=['precipitation', 'temp_mean'])
+    df.to_csv(cache_file)
+    print(f'    Saved to cache ({len(df)} days)')
+    return df
 
 
 def fetch_upstream_data():
     """Fetch weather from upstream cities to see what's heading toward NYC."""
     if USE_SYNTHETIC:
         return None
+
+    os.makedirs(CACHE_DIR, exist_ok=True)
+    cache_file = os.path.join(CACHE_DIR, 'upstream.csv')
+    if os.path.exists(cache_file) and not FORCE_REFRESH:
+        print('  Loading upstream from cache...')
+        df = pd.read_csv(cache_file, index_col='date', parse_dates=True)
+        print(f'    Cached: {len(df)} days, {len(df.columns)} columns')
+        return df
 
     try:
         import requests
@@ -491,6 +514,8 @@ def fetch_upstream_data():
         return None
 
     combined = pd.concat(all_upstream.values(), axis=1)
+    combined.to_csv(cache_file)
+    print(f'    Saved upstream cache ({len(combined)} days)')
     return combined
 
 
