@@ -29,21 +29,45 @@ TRAIN_SPLIT = 0.8
 # LUNAR PHASE
 # =============================================================
 
+SYNODIC_PERIOD = 29.53058867
+REF_NEW_MOON = datetime(2000, 1, 6, 18, 14)
+
+
 def lunar_phase(date):
     """
     Compute lunar phase [0, 1) for a given date.
     0 = new moon, 0.5 = full moon.
-    Uses a known new moon reference and the synodic period.
     """
-    ref_new_moon = datetime(2000, 1, 6, 18, 14)
-    synodic_period = 29.53058867
     if isinstance(date, pd.Timestamp):
         dt = date.to_pydatetime()
     else:
         dt = date
-    days_since = (dt - ref_new_moon).total_seconds() / 86400.0
-    phase = (days_since % synodic_period) / synodic_period
+    days_since = (dt - REF_NEW_MOON).total_seconds() / 86400.0
+    phase = (days_since % SYNODIC_PERIOD) / SYNODIC_PERIOD
     return phase
+
+
+def days_since_new_moon(date):
+    if isinstance(date, pd.Timestamp):
+        dt = date.to_pydatetime()
+    else:
+        dt = date
+    days_since = (dt - REF_NEW_MOON).total_seconds() / 86400.0
+    return days_since % SYNODIC_PERIOD
+
+
+def days_since_full_moon(date):
+    if isinstance(date, pd.Timestamp):
+        dt = date.to_pydatetime()
+    else:
+        dt = date
+    days_since = (dt - REF_NEW_MOON).total_seconds() / 86400.0
+    days_in_cycle = days_since % SYNODIC_PERIOD
+    full_moon_offset = SYNODIC_PERIOD / 2
+    days_since_full = days_in_cycle - full_moon_offset
+    if days_since_full < 0:
+        days_since_full += SYNODIC_PERIOD
+    return days_since_full
 
 
 def lunar_phase_name(phase):
@@ -202,6 +226,10 @@ def build_features(df):
     df['lunar_phase'] = [lunar_phase(d) for d in df.index]
     df['lunar_sin'] = np.sin(2 * np.pi * df['lunar_phase'])
     df['lunar_cos'] = np.cos(2 * np.pi * df['lunar_phase'])
+    df['lunar_days_since_new'] = [days_since_new_moon(d) for d in df.index]
+    df['lunar_days_since_full'] = [days_since_full_moon(d) for d in df.index]
+    df['lunar_near_new'] = (df['lunar_days_since_new'] <= 3).astype(int) | (df['lunar_days_since_new'] >= SYNODIC_PERIOD - 3).astype(int)
+    df['lunar_near_full'] = (df['lunar_days_since_full'] <= 3).astype(int) | (df['lunar_days_since_full'] >= SYNODIC_PERIOD - 3).astype(int)
     df['lunar_name'] = [lunar_phase_name(p) for p in df['lunar_phase']]
 
     df['day_of_year'] = df.index.dayofyear
@@ -349,37 +377,74 @@ def train_models(df):
 # =============================================================
 
 def analyze_lunar_effect(df):
-    n_bins = 8
-    bin_edges = np.linspace(0, 1, n_bins + 1)
-    phases = df['lunar_phase'].values
+    from scipy.stats import chisquare
+
     precip = df['precipitation'].values
     rained = df['will_rain'].values
+    days_new = df['lunar_days_since_new'].values
+    days_full = df['lunar_days_since_full'].values
 
-    bin_idx = np.clip(np.digitize(phases, bin_edges) - 1, 0, n_bins - 1)
+    half = SYNODIC_PERIOD / 2
 
-    results = []
+    # bin by days since new moon
+    n_bins = 15
+    bin_edges_new = np.linspace(0, SYNODIC_PERIOD, n_bins + 1)
+    bin_idx_new = np.clip(np.digitize(days_new, bin_edges_new) - 1, 0, n_bins - 1)
+
+    results_new = []
     for b in range(n_bins):
-        mask = bin_idx == b
-        center = (bin_edges[b] + bin_edges[b + 1]) / 2
-        results.append({
-            'phase_center': center,
-            'phase_name': lunar_phase_name(center),
+        mask = bin_idx_new == b
+        center = (bin_edges_new[b] + bin_edges_new[b + 1]) / 2
+        results_new.append({
+            'day_center': center,
+            'label': f'{center:.0f}d',
             'n_days': mask.sum(),
             'rain_prob': rained[mask].mean() if mask.sum() > 0 else 0,
             'avg_precip': precip[mask].mean() if mask.sum() > 0 else 0,
-            'avg_precip_rainy': precip[mask & (precip > 0.1)].mean() if (mask & (precip > 0.1)).sum() > 0 else 0,
         })
 
-    # chi-squared test on rain frequency
-    observed = np.array([r['n_days'] * r['rain_prob'] for r in results])
-    expected = np.full(n_bins, rained.sum() / n_bins)
-    if expected[0] > 0:
-        from scipy.stats import chisquare
-        chi2, p_val = chisquare(observed, expected)
-    else:
-        chi2, p_val = 0, 1
+    # bin by days since full moon
+    bin_idx_full = np.clip(np.digitize(days_full, bin_edges_new) - 1, 0, n_bins - 1)
 
-    return results, chi2, p_val
+    results_full = []
+    for b in range(n_bins):
+        mask = bin_idx_full == b
+        center = (bin_edges_new[b] + bin_edges_new[b + 1]) / 2
+        results_full.append({
+            'day_center': center,
+            'label': f'{center:.0f}d',
+            'n_days': mask.sum(),
+            'rain_prob': rained[mask].mean() if mask.sum() > 0 else 0,
+            'avg_precip': precip[mask].mean() if mask.sum() > 0 else 0,
+        })
+
+    # chi-squared: does rain frequency vary by days-since-new?
+    observed_new = np.array([r['n_days'] * r['rain_prob'] for r in results_new])
+    expected_new = np.full(n_bins, rained.sum() / n_bins)
+    chi2_new, p_new = chisquare(observed_new, expected_new) if expected_new[0] > 0 else (0, 1)
+
+    observed_full = np.array([r['n_days'] * r['rain_prob'] for r in results_full])
+    expected_full = np.full(n_bins, rained.sum() / n_bins)
+    chi2_full, p_full = chisquare(observed_full, expected_full) if expected_full[0] > 0 else (0, 1)
+
+    # near new moon vs not
+    near_new = df['lunar_near_new'].values.astype(bool)
+    near_full = df['lunar_near_full'].values.astype(bool)
+    neither = ~near_new & ~near_full
+
+    proximity_stats = {
+        'near_new': {'rain_prob': rained[near_new].mean(), 'avg_precip': precip[near_new].mean(), 'n': near_new.sum()},
+        'near_full': {'rain_prob': rained[near_full].mean(), 'avg_precip': precip[near_full].mean(), 'n': near_full.sum()},
+        'neither': {'rain_prob': rained[neither].mean(), 'avg_precip': precip[neither].mean(), 'n': neither.sum()},
+    }
+
+    return {
+        'results_new': results_new,
+        'results_full': results_full,
+        'chi2_new': chi2_new, 'p_new': p_new,
+        'chi2_full': chi2_full, 'p_full': p_full,
+        'proximity': proximity_stats,
+    }
 
 # =============================================================
 # PREDICTION
@@ -394,6 +459,10 @@ def predict_today(model_results, yesterday_pwat, yesterday_temp, today_date, df)
 
     today_row['lunar_sin'] = np.sin(2 * np.pi * phase)
     today_row['lunar_cos'] = np.cos(2 * np.pi * phase)
+    today_row['lunar_days_since_new'] = days_since_new_moon(today_date)
+    today_row['lunar_days_since_full'] = days_since_full_moon(today_date)
+    today_row['lunar_near_new'] = 1 if today_row['lunar_days_since_new'] <= 3 or today_row['lunar_days_since_new'] >= SYNODIC_PERIOD - 3 else 0
+    today_row['lunar_near_full'] = 1 if today_row['lunar_days_since_full'] <= 3 or today_row['lunar_days_since_full'] >= SYNODIC_PERIOD - 3 else 0
     today_row['day_of_year'] = today_date.timetuple().tm_yday
     today_row['season_sin'] = np.sin(2 * np.pi * today_row['day_of_year'] / 365.25)
     today_row['season_cos'] = np.cos(2 * np.pi * today_row['day_of_year'] / 365.25)
@@ -499,42 +568,49 @@ def plot_dashboard(df, model_results, lunar_results, prediction,
     ax.set_xlabel('Importance')
     ax.grid(alpha=0.3, axis='x')
 
-    # panel 4: lunar effect on rain
+    # panel 4: rain probability by days since new moon
     ax = fig.add_subplot(gs[2, 0])
-    lunar_data, chi2, p_val = lunar_results
-    phases_deg = [r['phase_center'] * 360 for r in lunar_data]
-    rain_probs = [r['rain_prob'] * 100 for r in lunar_data]
+    results_new = lunar_results['results_new']
+    days_x = [r['day_center'] for r in results_new]
+    rain_probs = [r['rain_prob'] * 100 for r in results_new]
     avg_prob = np.mean(rain_probs)
     colors = ['#9b59b6' if rp > avg_prob else '#bdc3c7' for rp in rain_probs]
-    bars = ax.bar(phases_deg, rain_probs, width=40, color=colors, edgecolor='white')
+    ax.bar(days_x, rain_probs, width=SYNODIC_PERIOD / 15 * 0.85,
+           color=colors, edgecolor='white')
     ax.axhline(avg_prob, color='black', linewidth=1.5, linestyle='--',
                label=f'Average ({avg_prob:.1f}%)')
-    ax.set_title(f'Rain Probability by Lunar Phase  (χ²={chi2:.1f}, p={p_val:.3f})',
-                 fontsize=13, fontweight='bold')
-    ax.set_xlabel('Lunar phase (degrees, 0°=New, 180°=Full)')
+    ax.axvline(SYNODIC_PERIOD / 2, color='#e74c3c', linewidth=1, linestyle=':',
+               alpha=0.7, label='Full Moon')
+    chi2_n = lunar_results['chi2_new']
+    p_n = lunar_results['p_new']
+    ax.set_title(f'Rain Prob by Days Since New Moon  (χ²={chi2_n:.1f}, p={p_n:.3f})',
+                 fontsize=12, fontweight='bold')
+    ax.set_xlabel('Days since last New Moon')
     ax.set_ylabel('Rain probability (%)')
-    ax.set_xlim(-20, 380)
-    ax.set_xticks([0, 90, 180, 270, 360])
-    ax.set_xticklabels(['New\n0°', 'First Q\n90°', 'Full\n180°',
-                         'Last Q\n270°', 'New\n360°'])
+    ax.set_xlim(-1, SYNODIC_PERIOD + 1)
     ax.legend(fontsize=9)
     ax.grid(alpha=0.3, axis='y')
 
-    # panel 5: avg precipitation by lunar phase
+    # panel 5: rain probability by days since full moon
     ax = fig.add_subplot(gs[2, 1])
-    avg_precips = [r['avg_precip'] for r in lunar_data]
-    avg_p = np.mean(avg_precips)
-    colors2 = ['#3498db' if p > avg_p else '#bdc3c7' for p in avg_precips]
-    ax.bar(phases_deg, avg_precips, width=40, color=colors2, edgecolor='white')
-    ax.axhline(avg_p, color='black', linewidth=1.5, linestyle='--',
-               label=f'Average ({avg_p:.2f} mm)')
-    ax.set_title('Avg Precipitation by Lunar Phase', fontsize=13, fontweight='bold')
-    ax.set_xlabel('Lunar phase (degrees)')
-    ax.set_ylabel('Avg daily precipitation (mm)')
-    ax.set_xlim(-20, 380)
-    ax.set_xticks([0, 90, 180, 270, 360])
-    ax.set_xticklabels(['New\n0°', 'First Q\n90°', 'Full\n180°',
-                         'Last Q\n270°', 'New\n360°'])
+    results_full = lunar_results['results_full']
+    days_x_f = [r['day_center'] for r in results_full]
+    rain_probs_f = [r['rain_prob'] * 100 for r in results_full]
+    avg_prob_f = np.mean(rain_probs_f)
+    colors2 = ['#3498db' if rp > avg_prob_f else '#bdc3c7' for rp in rain_probs_f]
+    ax.bar(days_x_f, rain_probs_f, width=SYNODIC_PERIOD / 15 * 0.85,
+           color=colors2, edgecolor='white')
+    ax.axhline(avg_prob_f, color='black', linewidth=1.5, linestyle='--',
+               label=f'Average ({avg_prob_f:.1f}%)')
+    ax.axvline(SYNODIC_PERIOD / 2, color='#e67e22', linewidth=1, linestyle=':',
+               alpha=0.7, label='New Moon')
+    chi2_f = lunar_results['chi2_full']
+    p_f = lunar_results['p_full']
+    ax.set_title(f'Rain Prob by Days Since Full Moon  (χ²={chi2_f:.1f}, p={p_f:.3f})',
+                 fontsize=12, fontweight='bold')
+    ax.set_xlabel('Days since last Full Moon')
+    ax.set_ylabel('Rain probability (%)')
+    ax.set_xlim(-1, SYNODIC_PERIOD + 1)
     ax.legend(fontsize=9)
     ax.grid(alpha=0.3, axis='y')
 
@@ -609,8 +685,13 @@ def plot_dashboard(df, model_results, lunar_results, prediction,
         f'  Lunar alone:    {model_results["lunar_only_acc"]*100:.1f}%',
         f'  Lunar adds:     {(model_results["full_acc"] - model_results["no_lunar_acc"])*100:+.2f}%',
         '',
+        f'Lunar proximity stats (±3 days):',
+        f'  Near New Moon:  {lunar_results["proximity"]["near_new"]["rain_prob"]*100:.1f}% rain',
+        f'  Near Full Moon: {lunar_results["proximity"]["near_full"]["rain_prob"]*100:.1f}% rain',
+        f'  Neither:        {lunar_results["proximity"]["neither"]["rain_prob"]*100:.1f}% rain',
+        '',
         f'Key features: yesterday\'s PWAT, temperature, recent precipitation history.',
-        f'Lunar phase contribution: {"minimal" if abs(model_results["full_acc"] - model_results["no_lunar_acc"]) < 0.01 else "detectable but small"}.',
+        f'Lunar contribution: {"minimal" if abs(model_results["full_acc"] - model_results["no_lunar_acc"]) < 0.01 else "detectable but small"}.',
     ]
     ax.text(0.05, 0.95, '\n'.join(lines), transform=ax.transAxes,
             fontsize=11, va='top', fontfamily='monospace',
@@ -663,15 +744,23 @@ def main():
     # lunar analysis
     print('\nLunar phase analysis...')
     lunar_results = analyze_lunar_effect(df_feat)
-    lunar_data, chi2, p_val = lunar_results
-    print(f'  Chi-squared: {chi2:.2f}, p-value: {p_val:.3f}')
-    sig = 'YES' if p_val < 0.05 else 'NO'
-    print(f'  Significant lunar effect on rain frequency: {sig}')
+    print(f'  Days since New Moon:  χ²={lunar_results["chi2_new"]:.2f}, p={lunar_results["p_new"]:.3f}')
+    print(f'  Days since Full Moon: χ²={lunar_results["chi2_full"]:.2f}, p={lunar_results["p_full"]:.3f}')
+    sig_new = 'YES' if lunar_results['p_new'] < 0.05 else 'NO'
+    sig_full = 'YES' if lunar_results['p_full'] < 0.05 else 'NO'
+    print(f'  Significant (new moon):  {sig_new}')
+    print(f'  Significant (full moon): {sig_full}')
 
-    print('\n  Rain probability by lunar phase:')
-    for r in lunar_data:
+    prox = lunar_results['proximity']
+    print(f'\n  Rain probability near lunar events (±3 days):')
+    print(f'    Near New Moon:  {prox["near_new"]["rain_prob"]*100:.1f}%  ({prox["near_new"]["n"]} days)')
+    print(f'    Near Full Moon: {prox["near_full"]["rain_prob"]*100:.1f}%  ({prox["near_full"]["n"]} days)')
+    print(f'    Neither:        {prox["neither"]["rain_prob"]*100:.1f}%  ({prox["neither"]["n"]} days)')
+
+    print(f'\n  Rain prob by days since New Moon:')
+    for r in lunar_results['results_new']:
         bar = '█' * int(r['rain_prob'] * 50)
-        print(f'    {r["phase_name"]:20s}  {r["rain_prob"]*100:5.1f}%  {bar}')
+        print(f'    {r["day_center"]:5.1f}d  {r["rain_prob"]*100:5.1f}%  {bar}')
 
     # today's prediction
     today = datetime.now()
@@ -688,7 +777,9 @@ def main():
     print(f'  Using yesterday\'s PWAT={yesterday_pwat:.1f} mm, temp={yesterday_temp:.1f}°C')
     prediction = predict_today(model_results, yesterday_pwat, yesterday_temp,
                                 today, df_feat)
-    print(f'  Lunar phase: {prediction["lunar_name"]} ({prediction["lunar_phase"]*360:.0f}°)')
+    dsn = days_since_new_moon(today)
+    dsf = days_since_full_moon(today)
+    print(f'  Lunar: {prediction["lunar_name"]} — {dsn:.1f} days since New, {dsf:.1f} days since Full')
     print(f'  Rain probability: {prediction["rain_prob"]*100:.0f}%')
     print(f'  Expected amount: {prediction["expected_amount"]:.1f} mm')
     if prediction['rain_prob'] > 0.5:
