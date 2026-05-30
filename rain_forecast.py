@@ -25,6 +25,14 @@ DATE_END = '2026-05-29'
 
 TRAIN_SPLIT = 0.8
 
+# Upstream cities — weather moves west/southwest → NYC
+UPSTREAM_STATIONS = {
+    'pitt': {'lat': 40.44, 'lon': -80.00, 'name': 'Pittsburgh'},
+    'dc':   {'lat': 38.90, 'lon': -77.04, 'name': 'Washington DC'},
+    'alb':  {'lat': 42.65, 'lon': -73.75, 'name': 'Albany'},
+    'phl':  {'lat': 39.95, 'lon': -75.17, 'name': 'Philadelphia'},
+}
+
 # =============================================================
 # PLANETARY EVENTS
 # =============================================================
@@ -405,6 +413,87 @@ def fetch_weather_data():
 
     return df.dropna(subset=['precipitation', 'temp_mean'])
 
+
+def fetch_upstream_data():
+    """Fetch weather from upstream cities to see what's heading toward NYC."""
+    if USE_SYNTHETIC:
+        return None
+
+    try:
+        import requests
+        import time as _time
+    except ImportError:
+        return None
+
+    print('  Fetching upstream station data...')
+    upstream_vars = (
+        'precipitation_sum,pressure_msl_mean,cloud_cover_mean,'
+        'relative_humidity_2m_mean,temperature_2m_mean,wind_speed_10m_max'
+    )
+    all_upstream = {}
+
+    for prefix, info in UPSTREAM_STATIONS.items():
+        station_data = []
+        start = pd.Timestamp(DATE_START)
+        end = pd.Timestamp(DATE_END)
+        chunk_start = start
+
+        while chunk_start < end:
+            chunk_end = min(chunk_start + pd.DateOffset(years=5) - pd.DateOffset(days=1), end)
+            url = (
+                f'https://archive-api.open-meteo.com/v1/archive?'
+                f'latitude={info["lat"]}&longitude={info["lon"]}'
+                f'&start_date={chunk_start.strftime("%Y-%m-%d")}'
+                f'&end_date={chunk_end.strftime("%Y-%m-%d")}'
+                f'&daily={upstream_vars}'
+                f'&timezone=America/New_York'
+            )
+
+            if station_data:
+                _time.sleep(5)
+            for attempt in range(4):
+                try:
+                    resp = requests.get(url, timeout=60)
+                    if resp.status_code == 429:
+                        wait = 30 * (attempt + 1)
+                        print(f'    Rate limited, waiting {wait}s...')
+                        _time.sleep(wait)
+                        continue
+                    if resp.status_code != 200:
+                        break
+                    data = resp.json()
+                    daily = data.get('daily', {})
+                    if not daily or 'time' not in daily:
+                        break
+                    chunk_df = pd.DataFrame({
+                        'date': pd.to_datetime(daily['time']),
+                        f'{prefix}_precip': daily.get('precipitation_sum'),
+                        f'{prefix}_pressure': daily.get('pressure_msl_mean'),
+                        f'{prefix}_cloud': daily.get('cloud_cover_mean'),
+                        f'{prefix}_humidity': daily.get('relative_humidity_2m_mean'),
+                        f'{prefix}_temp': daily.get('temperature_2m_mean'),
+                        f'{prefix}_wind': daily.get('wind_speed_10m_max'),
+                    })
+                    station_data.append(chunk_df)
+                    break
+                except Exception:
+                    if attempt < 3:
+                        _time.sleep(30)
+            chunk_start = chunk_end + pd.DateOffset(days=1)
+
+        if station_data:
+            sdf = pd.concat(station_data, ignore_index=True).set_index('date')
+            sdf = sdf.apply(pd.to_numeric, errors='coerce')
+            all_upstream[prefix] = sdf
+            print(f'    {info["name"]}: {len(sdf)} days')
+
+    if not all_upstream:
+        return None
+
+    combined = pd.concat(all_upstream.values(), axis=1)
+    return combined
+
+
 # =============================================================
 # FEATURE ENGINEERING
 # =============================================================
@@ -541,6 +630,24 @@ def build_features(df):
     df['rained_yesterday'] = (df['precipitation'].shift(1) > 0.1).astype(int)
     df['rain_2day_sum'] = df['precipitation'].shift(1).rolling(2).sum()
 
+    # upstream station features (yesterday's weather at nearby cities)
+    for prefix in UPSTREAM_STATIONS:
+        precip_col = f'{prefix}_precip'
+        pressure_col = f'{prefix}_pressure'
+        cloud_col = f'{prefix}_cloud'
+        humidity_col = f'{prefix}_humidity'
+
+        if precip_col in df.columns:
+            df[f'{prefix}_precip_lag1'] = df[precip_col].shift(1)
+            df[f'{prefix}_rained_yest'] = (df[precip_col].shift(1) > 0.1).astype(int)
+        if pressure_col in df.columns:
+            df[f'{prefix}_pressure_lag1'] = df[pressure_col].shift(1)
+            df[f'{prefix}_pressure_drop'] = df[pressure_col].shift(1) - df[pressure_col].shift(2)
+        if cloud_col in df.columns:
+            df[f'{prefix}_cloud_lag1'] = df[cloud_col].shift(1)
+        if humidity_col in df.columns:
+            df[f'{prefix}_humidity_lag1'] = df[humidity_col].shift(1)
+
     df['will_rain'] = (df['precipitation'] > 0.1).astype(int)
 
     return df.dropna()
@@ -561,6 +668,11 @@ LEAK_COLS = [
     'Open', 'High', 'Low', 'Close', 'Volume',
     'BB_Middle', 'BB_Upper', 'BB_Lower', 'BB_Width',
 ]
+
+# upstream raw values are same-day — only lagged versions should be used
+for _pfx in UPSTREAM_STATIONS:
+    LEAK_COLS.extend([f'{_pfx}_precip', f'{_pfx}_pressure', f'{_pfx}_cloud',
+                      f'{_pfx}_humidity', f'{_pfx}_temp', f'{_pfx}_wind'])
 
 
 def train_models(df):
@@ -587,8 +699,8 @@ def train_models(df):
         subsample=0.8, random_state=42
     )
     clf.fit(X_train_s, y_bin_train)
-    bin_pred = clf.predict(X_test_s)
     bin_prob = clf.predict_proba(X_test_s)[:, 1]
+    bin_pred = (bin_prob >= 0.45).astype(int)
 
     # amount regressor (trained only on rainy days)
     rain_mask_train = y_amt_train > 0.1
@@ -689,8 +801,8 @@ def walk_forward_backtest(df, n_folds=5):
             n_estimators=200, max_depth=4, learning_rate=0.1,
             subsample=0.8, random_state=42)
         clf.fit(X_tr_s, y_bin_tr)
-        bin_pred = clf.predict(X_te_s)
         bin_prob = clf.predict_proba(X_te_s)[:, 1]
+        bin_pred = (bin_prob >= 0.45).astype(int)
 
         rain_mask = y_amt_tr > 0.1
         if rain_mask.sum() > 50:
@@ -1116,6 +1228,12 @@ def main():
     if 'pwat_real' in df.columns:
         real_count = df['pwat_real'].notna().sum()
         print(f'  Real PWAT (ERA5): {real_count} days ({real_count/len(df)*100:.0f}% coverage)')
+
+    # fetch upstream station data
+    upstream = fetch_upstream_data()
+    if upstream is not None:
+        df = df.join(upstream, how='left')
+        print(f'  Upstream stations joined: {len(UPSTREAM_STATIONS)} cities')
 
     print('\nBuilding features...')
     df_feat = build_features(df)
