@@ -26,80 +26,97 @@ DATE_END = '2026-05-29'
 TRAIN_SPLIT = 0.8
 
 # =============================================================
-# VENUS EQUATOR CROSSING
+# PLANETARY EVENTS
 # =============================================================
 
-def compute_venus_declination(dates):
-    """Compute Venus geocentric declination for each date using ephem."""
+def compute_planetary_data(dates):
+    """Compute all planetary event features using ephem."""
     try:
         import ephem
     except ImportError:
-        print('  WARNING: ephem not installed. Install with: pip install ephem')
-        print('  Falling back to approximate Venus declination.')
-        return _approx_venus_declination(dates)
+        print('  WARNING: ephem not installed (pip install ephem). Skipping planets.')
+        return None
 
-    decs = []
-    for d in dates:
+    n = len(dates)
+    venus_dec = np.zeros(n)
+    mercury_dec = np.zeros(n)
+    venus_sun_sep = np.zeros(n)
+    mars_saturn_sep = np.zeros(n)
+
+    for i, d in enumerate(dates):
         if isinstance(d, pd.Timestamp):
             dt = d.to_pydatetime()
         else:
             dt = d
-        observer = ephem.Observer()
-        observer.date = dt.strftime('%Y/%m/%d')
-        v = ephem.Venus(observer)
-        decs.append(float(v.dec) * 180 / np.pi)
-    return np.array(decs)
+        obs = ephem.Observer()
+        obs.date = dt.strftime('%Y/%m/%d')
+
+        v = ephem.Venus(obs)
+        venus_dec[i] = float(v.dec) * 180 / np.pi
+
+        m = ephem.Mercury(obs)
+        mercury_dec[i] = float(m.dec) * 180 / np.pi
+
+        sun = ephem.Sun(obs)
+        venus_sun_sep[i] = float(ephem.separation(
+            (v.ra, v.dec), (sun.ra, sun.dec))) * 180 / np.pi
+
+        mars = ephem.Mars(obs)
+        saturn = ephem.Saturn(obs)
+        mars_saturn_sep[i] = float(ephem.separation(
+            (mars.ra, mars.dec), (saturn.ra, saturn.dec))) * 180 / np.pi
+
+    return {
+        'venus_dec': venus_dec,
+        'mercury_dec': mercury_dec,
+        'venus_sun_sep': venus_sun_sep,
+        'mars_saturn_sep': mars_saturn_sep,
+    }
 
 
-def _approx_venus_declination(dates):
-    """Rough approximation when ephem is not available."""
-    decs = []
-    for d in dates:
-        if isinstance(d, pd.Timestamp):
-            dt = d.to_pydatetime()
-        else:
-            dt = d
-        jd = (dt - datetime(2000, 1, 1)).total_seconds() / 86400.0 + 2451545.0
-        T = (jd - 2451545.0) / 36525.0
-        L_venus = (181.979801 + 58517.8156760 * T) % 360
-        L_earth = (100.466449 + 36000.7698231 * T) % 360
-        elong = L_venus - L_earth
-        geo_lon = (L_earth + 180 + elong * 0.5) % 360
-        obliquity = 23.439
-        dec = np.degrees(np.arcsin(
-            np.sin(np.radians(obliquity)) * np.sin(np.radians(geo_lon))))
-        decs.append(dec)
-    return np.array(decs)
-
-
-def find_equator_crossings(dates, declinations):
-    """Find dates where Venus declination crosses zero."""
+def find_zero_crossings(values):
     crossings = []
-    for i in range(1, len(declinations)):
-        if declinations[i-1] * declinations[i] < 0:
-            crossings.append(dates[i])
+    for i in range(1, len(values)):
+        if values[i-1] * values[i] < 0:
+            crossings.append(i)
     return crossings
 
 
-def days_since_venus_crossing(dates, declinations):
-    """For each date, compute days since last Venus equator crossing."""
-    crossings = find_equator_crossings(dates, declinations)
-    if not crossings:
+def days_since_event(dates, event_indices):
+    if not event_indices:
         return np.full(len(dates), np.nan)
-
     result = np.full(len(dates), np.nan)
-    crossing_idx = 0
-    for i, d in enumerate(dates):
-        while crossing_idx < len(crossings) - 1 and crossings[crossing_idx + 1] <= d:
-            crossing_idx += 1
-        if crossings[crossing_idx] <= d:
-            delta = (d - crossings[crossing_idx]).days
-            result[i] = delta
-        elif crossing_idx > 0:
-            delta = (d - crossings[crossing_idx - 1]).days
-            result[i] = delta
-
+    ei = 0
+    for i in range(len(dates)):
+        while ei < len(event_indices) - 1 and event_indices[ei + 1] <= i:
+            ei += 1
+        if event_indices[ei] <= i:
+            result[i] = (dates[i] - dates[event_indices[ei]]).days
     return result
+
+
+def find_conjunction_indices(separations, threshold=5.0):
+    """Find local minima in separation below threshold (conjunction)."""
+    indices = []
+    for i in range(1, len(separations) - 1):
+        if (separations[i] < separations[i-1] and
+            separations[i] < separations[i+1] and
+            separations[i] < threshold):
+            indices.append(i)
+    return indices
+
+
+def find_aspect_indices(separations, target_angle, tolerance=3.0):
+    """Find dates where separation is near a specific aspect angle."""
+    indices = []
+    for i in range(1, len(separations) - 1):
+        diff = abs(separations[i] - target_angle)
+        if diff < tolerance:
+            diff_prev = abs(separations[i-1] - target_angle)
+            diff_next = abs(separations[i+1] - target_angle)
+            if diff <= diff_prev and diff <= diff_next:
+                indices.append(i)
+    return indices
 
 
 # =============================================================
@@ -309,13 +326,45 @@ def build_features(df):
     df['lunar_near_full'] = (df['lunar_days_since_full'] <= 3).astype(int) | (df['lunar_days_since_full'] >= SYNODIC_PERIOD - 3).astype(int)
     df['lunar_name'] = [lunar_phase_name(p) for p in df['lunar_phase']]
 
-    # Venus equator crossing features
-    print('    Computing Venus declination...')
-    venus_dec = compute_venus_declination(df.index)
-    df['venus_declination'] = venus_dec
-    df['venus_days_since_crossing'] = days_since_venus_crossing(df.index, venus_dec)
-    df['venus_near_crossing'] = (df['venus_days_since_crossing'] <= 2).astype(int)
-    df['venus_abs_dec'] = np.abs(venus_dec)
+    # planetary features
+    print('    Computing planetary positions...')
+    planet_data = compute_planetary_data(df.index)
+    if planet_data is not None:
+        # Venus declination + equator crossing
+        df['venus_dec'] = planet_data['venus_dec']
+        venus_crossings = find_zero_crossings(planet_data['venus_dec'])
+        df['venus_days_since_crossing'] = days_since_event(df.index, venus_crossings)
+        df['venus_near_crossing'] = (df['venus_days_since_crossing'] <= 2).astype(int)
+        df['venus_abs_dec'] = np.abs(planet_data['venus_dec'])
+
+        # Venus-Sun conjunction (separation near 0)
+        df['venus_sun_sep'] = planet_data['venus_sun_sep']
+        venus_conj = find_conjunction_indices(planet_data['venus_sun_sep'], threshold=10)
+        df['venus_days_since_conj'] = days_since_event(df.index, venus_conj)
+        df['venus_near_conj'] = (df['venus_days_since_conj'] <= 2).astype(int)
+
+        # Mercury declination + equator crossing
+        df['mercury_dec'] = planet_data['mercury_dec']
+        merc_crossings = find_zero_crossings(planet_data['mercury_dec'])
+        df['mercury_days_since_crossing'] = days_since_event(df.index, merc_crossings)
+        df['mercury_near_crossing'] = (df['mercury_days_since_crossing'] <= 2).astype(int)
+        df['mercury_abs_dec'] = np.abs(planet_data['mercury_dec'])
+
+        # Mars-Saturn aspects (conjunction=0°, opposition=180°, square=90°)
+        df['mars_saturn_sep'] = planet_data['mars_saturn_sep']
+        ms_conj = find_conjunction_indices(planet_data['mars_saturn_sep'], threshold=10)
+        ms_square = find_aspect_indices(planet_data['mars_saturn_sep'], 90, tolerance=5)
+        ms_opposition = find_aspect_indices(planet_data['mars_saturn_sep'], 180, tolerance=5)
+        all_ms_aspects = sorted(set(ms_conj + ms_square + ms_opposition))
+        df['mars_saturn_days_since_aspect'] = days_since_event(df.index, all_ms_aspects)
+        df['mars_saturn_near_aspect'] = (df['mars_saturn_days_since_aspect'] <= 2).astype(int)
+        df['mars_saturn_days_since_conj'] = days_since_event(df.index, ms_conj)
+
+        print(f'      Venus eq crossings: {len(venus_crossings)}, '
+              f'Venus-Sun conjunctions: {len(venus_conj)}')
+        print(f'      Mercury eq crossings: {len(merc_crossings)}')
+        print(f'      Mars-Saturn aspects: {len(all_ms_aspects)} '
+              f'(conj={len(ms_conj)}, square={len(ms_square)}, opp={len(ms_opposition)})')
 
     df['day_of_year'] = df.index.dayofyear
     df['season_sin'] = np.sin(2 * np.pi * df['day_of_year'] / 365.25)
@@ -540,60 +589,35 @@ def walk_forward_backtest(df, n_folds=5):
 
 
 # =============================================================
-# VENUS ANALYSIS
+# PLANETARY EVENT ANALYSIS
 # =============================================================
 
-def analyze_venus_effect(df):
-    from scipy.stats import chisquare
-
+def analyze_planetary_event(df, days_col, near_col, event_name):
+    """Generic analysis for any planetary event."""
     precip = df['precipitation'].values
     rained = df['will_rain'].values
-    days_cross = df['venus_days_since_crossing'].values
 
-    valid = ~np.isnan(days_cross)
-    days_cross_v = days_cross[valid]
-    precip_v = precip[valid]
-    rained_v = rained[valid]
+    if days_col not in df.columns:
+        return None
 
-    n_bins = 12
-    max_days = np.nanmax(days_cross_v)
-    bin_edges = np.linspace(0, max_days + 1, n_bins + 1)
-    bin_idx = np.clip(np.digitize(days_cross_v, bin_edges) - 1, 0, n_bins - 1)
+    days_vals = df[days_col].values
+    valid = ~np.isnan(days_vals)
+    if valid.sum() < 100:
+        return None
 
-    results = []
-    for b in range(n_bins):
-        mask = bin_idx == b
-        center = (bin_edges[b] + bin_edges[b + 1]) / 2
-        results.append({
-            'day_center': center,
-            'n_days': mask.sum(),
-            'rain_prob': rained_v[mask].mean() if mask.sum() > 0 else 0,
-            'avg_precip': precip_v[mask].mean() if mask.sum() > 0 else 0,
-        })
+    near = df[near_col].values.astype(bool) if near_col in df.columns else np.zeros(len(df), dtype=bool)
 
-    observed = np.array([r['n_days'] * r['rain_prob'] for r in results])
-    expected = np.full(n_bins, rained_v.sum() / n_bins)
-    chi2, p_val = chisquare(observed, expected) if expected[0] > 0 else (0, 1)
-
-    near = df['venus_near_crossing'].values.astype(bool)
-    proximity = {
-        'near_crossing': {
-            'rain_prob': rained[near].mean() if near.sum() > 0 else 0,
-            'avg_precip': precip[near].mean() if near.sum() > 0 else 0,
-            'n': near.sum(),
-        },
-        'away': {
-            'rain_prob': rained[~near].mean(),
-            'avg_precip': precip[~near].mean(),
-            'n': (~near).sum(),
-        },
-    }
+    near_rain = rained[near].mean() if near.sum() > 0 else 0
+    away_rain = rained[~near].mean() if (~near).sum() > 0 else 0
 
     return {
-        'results': results,
-        'chi2': chi2, 'p_val': p_val,
-        'proximity': proximity,
-        'n_crossings': len(find_equator_crossings(df.index, df['venus_declination'].values)),
+        'name': event_name,
+        'near_rain_prob': near_rain,
+        'away_rain_prob': away_rain,
+        'near_n': near.sum(),
+        'away_n': (~near).sum(),
+        'diff': near_rain - away_rain,
+        'avg_rain': rained.mean(),
     }
 
 
@@ -966,48 +990,45 @@ def main():
         tag = ''
         if 'lunar' in name:
             tag = ' (LUNAR)'
-        elif 'venus' in name:
-            tag = ' (VENUS)'
-        print(f'    {name:30s}  {imp:.4f}{tag}')
+        elif 'venus' in name or 'mercury' in name or 'mars' in name:
+            tag = ' (PLANET)'
+        print(f'    {name:35s}  {imp:.4f}{tag}')
 
     # lunar analysis
     print('\nLunar phase analysis...')
     lunar_results = analyze_lunar_effect(df_feat)
     print(f'  Days since New Moon:  χ²={lunar_results["chi2_new"]:.2f}, p={lunar_results["p_new"]:.3f}')
     print(f'  Days since Full Moon: χ²={lunar_results["chi2_full"]:.2f}, p={lunar_results["p_full"]:.3f}')
-    sig_new = 'YES' if lunar_results['p_new'] < 0.05 else 'NO'
-    sig_full = 'YES' if lunar_results['p_full'] < 0.05 else 'NO'
-    print(f'  Significant (new moon):  {sig_new}')
-    print(f'  Significant (full moon): {sig_full}')
 
     prox = lunar_results['proximity']
-    print(f'\n  Rain probability near lunar events (±3 days):')
-    print(f'    Near New Moon:  {prox["near_new"]["rain_prob"]*100:.1f}%  ({prox["near_new"]["n"]} days)')
-    print(f'    Near Full Moon: {prox["near_full"]["rain_prob"]*100:.1f}%  ({prox["near_full"]["n"]} days)')
-    print(f'    Neither:        {prox["neither"]["rain_prob"]*100:.1f}%  ({prox["neither"]["n"]} days)')
+    print(f'  Near New Moon:  {prox["near_new"]["rain_prob"]*100:.1f}%  |  '
+          f'Near Full: {prox["near_full"]["rain_prob"]*100:.1f}%  |  '
+          f'Neither: {prox["neither"]["rain_prob"]*100:.1f}%')
 
-    print(f'\n  Rain prob by days since New Moon:')
-    for r in lunar_results['results_new']:
-        bar = '█' * int(r['rain_prob'] * 50)
-        print(f'    {r["day_center"]:5.1f}d  {r["rain_prob"]*100:5.1f}%  {bar}')
+    # all planetary events
+    print(f'\n{"="*65}')
+    print('PLANETARY EVENT ANALYSIS (±2 days)')
+    print(f'{"="*65}')
+    print(f'  Baseline rain probability: {(df_feat["will_rain"].mean())*100:.1f}%\n')
 
-    # venus analysis
-    print('\nVenus equator crossing analysis...')
-    venus_results = analyze_venus_effect(df_feat)
-    print(f'  Total crossings in dataset: {venus_results["n_crossings"]}')
-    print(f'  χ² by days since crossing: {venus_results["chi2"]:.2f}, p={venus_results["p_val"]:.3f}')
-    sig_venus = 'YES' if venus_results['p_val'] < 0.05 else 'NO'
-    print(f'  Significant: {sig_venus}')
+    events = [
+        ('venus_days_since_crossing', 'venus_near_crossing', 'Venus equator crossing'),
+        ('venus_days_since_conj', 'venus_near_conj', 'Venus-Sun conjunction'),
+        ('mercury_days_since_crossing', 'mercury_near_crossing', 'Mercury equator crossing'),
+        ('mars_saturn_days_since_aspect', 'mars_saturn_near_aspect', 'Mars-Saturn aspect (conj/sq/opp)'),
+    ]
 
-    vp = venus_results['proximity']
-    print(f'\n  Rain probability near Venus crossing (±2 days):')
-    print(f'    Near crossing: {vp["near_crossing"]["rain_prob"]*100:.1f}%  ({vp["near_crossing"]["n"]} days)')
-    print(f'    Away:          {vp["away"]["rain_prob"]*100:.1f}%  ({vp["away"]["n"]} days)')
-
-    print(f'\n  Rain prob by days since Venus equator crossing:')
-    for r in venus_results['results']:
-        bar = '█' * int(r['rain_prob'] * 50)
-        print(f'    {r["day_center"]:5.1f}d  {r["rain_prob"]*100:5.1f}%  ({r["n_days"]:>4d} days)  {bar}')
+    print(f'  {"Event":35s}  {"Near ±2d":>10s}  {"Away":>10s}  {"Diff":>8s}  {"N near":>7s}  {"Signal?"}')
+    print('  ' + '-' * 90)
+    for days_col, near_col, name in events:
+        result = analyze_planetary_event(df_feat, days_col, near_col, name)
+        if result is None:
+            print(f'  {name:35s}  {"N/A":>10s}')
+            continue
+        sig = 'YES' if abs(result['diff']) > 0.03 else 'no'
+        print(f'  {name:35s}  {result["near_rain_prob"]*100:>9.1f}%  '
+              f'{result["away_rain_prob"]*100:>9.1f}%  '
+              f'{result["diff"]*100:>+7.1f}%  {result["near_n"]:>7d}  {sig}')
 
     # today's prediction
     today = datetime.now()
