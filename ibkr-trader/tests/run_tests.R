@@ -7,7 +7,7 @@
 # --- Load the code under test (base R only; no IBrokers needed) -------------
 for (f in c("utils.R", "config.R", "contracts.R", "guardrails.R", "orders.R",
             "backtest_data.R", "strategy.R", "backtest.R", "metrics.R",
-            "pipeline.R", "live_runner.R"))
+            "pipeline.R", "live_runner.R", "backtest_ohlc.R"))
   source(file.path("R", f))
 
 # --- Minimal expectation harness --------------------------------------------
