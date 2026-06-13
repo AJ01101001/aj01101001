@@ -6,7 +6,8 @@
 
 # --- Load the code under test (base R only; no IBrokers needed) -------------
 for (f in c("utils.R", "config.R", "contracts.R", "guardrails.R", "orders.R",
-            "backtest_data.R", "strategy.R", "backtest.R", "metrics.R"))
+            "backtest_data.R", "strategy.R", "backtest.R", "metrics.R",
+            "pipeline.R"))
   source(file.path("R", f))
 
 # --- Minimal expectation harness --------------------------------------------
@@ -34,6 +35,9 @@ expect_equal <- function(actual, expected, label = "expect_equal") {
   else .record_fail(label, sprintf("got %s, expected %s",
                                     paste(format(actual), collapse = ","),
                                     paste(format(expected), collapse = ",")))
+}
+expect_null <- function(x, label = "expect_null") {
+  if (is.null(x)) .record_pass() else .record_fail(label, "expected NULL")
 }
 expect_error <- function(expr, label = "expect_error") {
   threw <- tryCatch({ force(expr); FALSE }, error = function(e) TRUE)

@@ -12,7 +12,9 @@ local({
   if (is.null(here) || !nzchar(here)) here <- getwd()
   r_dir <- file.path(here, "R")
   files <- c("utils.R", "config.R", "contracts.R", "guardrails.R",
-             "orders.R", "connection.R", "marketdata.R", "portfolio.R")
+             "orders.R", "connection.R", "marketdata.R", "portfolio.R",
+             "backtest_data.R", "strategy.R", "backtest.R", "metrics.R",
+             "pipeline.R")
   for (f in files) source(file.path(r_dir, f))
 })
 

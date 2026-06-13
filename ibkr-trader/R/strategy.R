@@ -76,3 +76,18 @@ strategy_dip_buy <- function(prices, dip = 0.03, lookback = 10,
 strategy_buy_hold <- function(prices) {
   rep(1L, nrow(prices))
 }
+
+# ===========================================================================
+# PLACEHOLDER -- the real strategy goes here. Returns flat (0) for now so the
+# pipeline runs end-to-end. Swap the body for the actual logic when ready.
+#
+# TODO (refine later): intraday mean-reversion "fade the flush".
+#   - estimate expected daily range from intraday sigma scaled by
+#     sqrt(volume_prev_day / avg_volume)   [validate the volume term first]
+#   - draw a band around an anchor (open / prior close / rolling 5-min mean)
+#   - go long when price pokes BELOW the band; exit on revert / stop
+#   - pairs with the IWM put wall as the catastrophe hedge
+# ===========================================================================
+strategy_fade_range <- function(prices, ...) {
+  rep(0L, nrow(prices))   # placeholder: flat until the real model lands
+}
