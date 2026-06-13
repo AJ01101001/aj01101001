@@ -78,16 +78,79 @@ strategy_buy_hold <- function(prices) {
 }
 
 # ===========================================================================
-# PLACEHOLDER -- the real strategy goes here. Returns flat (0) for now so the
-# pipeline runs end-to-end. Swap the body for the actual logic when ready.
+# strategy_fade_range -- intraday mean-reversion, "fade the flush".
 #
-# TODO (refine later): intraday mean-reversion "fade the flush".
-#   - estimate expected daily range from intraday sigma scaled by
-#     sqrt(volume_prev_day / avg_volume)   [validate the volume term first]
-#   - draw a band around an anchor (open / prior close / rolling 5-min mean)
-#   - go long when price pokes BELOW the band; exit on revert / stop
-#   - pairs with the IWM put wall as the catastrophe hedge
+# Idea: within each trading day, watch how far price has dropped below a fast
+# rolling anchor, measured in units of the bar-to-bar volatility (sigma). When
+# price gets "deep out of bounds" to the downside (a flush) -- optionally
+# confirmed by a volume spike -- go LONG, betting it reverts. Exit on revert to
+# the anchor, a stop, a time-out, or end of day (never hold overnight).
+#
+# LONG-ONLY by design: we never fade the up-moves (parabolic names trend up
+# violently -- shorting "too high" gets run over). The IWM put wall is the
+# catastrophe hedge for the rare flush that doesn't revert.
+#
+# All thresholds are still rough placeholders -- tune against real data.
+#
+# @param prices    data.frame with `date`, `close`, and (optionally) `volume`,
+#                   `day`. Use load_intraday_csv() for the right shape.
+# @param anchor_n  Rolling window (bars) for the anchor mean and sigma.
+# @param k         How many sigmas below the anchor counts as "deep" (entry).
+# @param vol_min   Min relative volume (0-100) to confirm entry; 0 = no filter.
+# @param stop      Stop loss as a fraction below entry price.
+# @param max_hold  Max bars to hold before timing out.
+# @return Integer target-position vector (1 = long, 0 = flat).
 # ===========================================================================
-strategy_fade_range <- function(prices, ...) {
-  rep(0L, nrow(prices))   # placeholder: flat until the real model lands
+strategy_fade_range <- function(prices, anchor_n = 6, k = 2,
+                                vol_min = 0, stop = 0.025, max_hold = 6) {
+  close <- prices$close
+  n <- length(close)
+  vol <- if (!is.null(prices$volume)) prices$volume else rep(Inf, n)
+  day <- if (!is.null(prices$day)) prices$day else as.Date(prices$date)
+
+  pos <- integer(n)
+  in_pos <- FALSE; entry_px <- NA_real_; held <- 0L
+
+  for (t in seq_len(n)) {
+    if (t == 1 || day[t] != day[t - 1]) {        # new day -> reset, start flat
+      in_pos <- FALSE; entry_px <- NA_real_; held <- 0L
+    }
+    last_of_day <- (t == n) || (day[min(t + 1, n)] != day[t])
+
+    # Need a full same-day window before the current bar to compute stats.
+    win_lo <- t - anchor_n
+    have_window <- win_lo >= 1 && day[win_lo] == day[t]
+
+    cur <- if (in_pos) 1L else 0L
+
+    if (have_window && !last_of_day) {
+      w <- close[(t - anchor_n):(t - 1)]          # prior bars only (no lookahead)
+      anchor <- mean(w)
+      sig <- stats::sd(diff(w) / head(w, -1))
+      if (is.na(sig) || sig == 0) sig <- 1e-3
+      dev <- (close[t] - anchor) / anchor          # how far below the anchor
+
+      if (!in_pos) {
+        flush      <- dev <= -k * sig
+        vol_ok     <- is.infinite(vol[t]) || is.na(vol[t]) || vol[t] >= vol_min
+        if (flush && vol_ok) {
+          in_pos <- TRUE; entry_px <- close[t]; held <- 0L; cur <- 1L
+        } else cur <- 0L
+      } else {
+        held <- held + 1L
+        reverted <- close[t] >= anchor
+        stopped  <- close[t] <= entry_px * (1 - stop)
+        timed_out <- held >= max_hold
+        if (reverted || stopped || timed_out) {
+          in_pos <- FALSE; entry_px <- NA_real_; cur <- 0L
+        } else cur <- 1L
+      }
+    }
+
+    if (last_of_day) {                             # never hold overnight
+      in_pos <- FALSE; entry_px <- NA_real_; cur <- 0L
+    }
+    pos[t] <- cur
+  }
+  pos
 }

@@ -56,3 +56,37 @@ validate_prices <- function(prices) {
   if (is.unsorted(prices$date)) stop("Dates must be in ascending order.")
   invisible(prices)
 }
+
+#' Load intraday bars from a CSV with columns like:
+#'   Date, Time, Price (est), Volume (rel 0-100), Dir
+#' (column names matched loosely, so spacing/case don't matter).
+#'
+#' @param path  Path to the CSV.
+#' @param year  Year to attach to the m/d dates (the sample omits it).
+#' @return data.frame(date = POSIXct, close, volume, day = Date, dir).
+load_intraday_csv <- function(path, year = 2026) {
+  if (!file.exists(path)) stop(sprintf("CSV not found: %s", path))
+  raw <- utils::read.csv(path, check.names = FALSE, stringsAsFactors = FALSE)
+  nm <- tolower(names(raw))
+  pick <- function(pattern) {
+    hit <- which(grepl(pattern, nm))
+    if (length(hit) == 0) stop(sprintf("No column matching '%s' in %s", pattern, path))
+    names(raw)[hit[1]]
+  }
+  date_c <- pick("date"); time_c <- pick("time")
+  px_c   <- pick("price"); vol_c <- pick("vol"); dir_c <- pick("dir")
+
+  dt <- as.POSIXct(paste0(year, "/", raw[[date_c]], " ", raw[[time_c]]),
+                   format = "%Y/%m/%d %I:%M %p", tz = "America/New_York")
+  out <- data.frame(
+    date   = dt,
+    close  = as.numeric(raw[[px_c]]),
+    volume = as.numeric(raw[[vol_c]]),
+    day    = as.Date(dt),
+    dir    = as.character(raw[[dir_c]]),
+    stringsAsFactors = FALSE
+  )
+  out <- out[order(out$date), ]
+  validate_prices(out)
+  out
+}
