@@ -5,7 +5,8 @@
 # Exits non-zero if any expectation fails, so it is CI-friendly.
 
 # --- Load the code under test (base R only; no IBrokers needed) -------------
-for (f in c("utils.R", "config.R", "contracts.R", "guardrails.R", "orders.R"))
+for (f in c("utils.R", "config.R", "contracts.R", "guardrails.R", "orders.R",
+            "backtest_data.R", "strategy.R", "backtest.R", "metrics.R"))
   source(file.path("R", f))
 
 # --- Minimal expectation harness --------------------------------------------
