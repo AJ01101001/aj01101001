@@ -1,0 +1,11 @@
+# Local, machine-specific config (may contain live-mode settings) -- never commit.
+config/config.R
+
+# Runtime logs
+logs/
+*.log
+
+# R session artifacts
+.Rhistory
+.RData
+.Rproj.user/
