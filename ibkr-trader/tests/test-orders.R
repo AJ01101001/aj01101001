@@ -28,6 +28,28 @@ test_that("order_reference_price picks the right price per type", {
                "MKT falls back to estimate")
 })
 
+test_that("TRAIL orders require a trail distance", {
+  expect_error(new_order("SELL", 10, "TRAIL"), "TRAIL without a trail distance rejected")
+  ok_amt <- new_order("SELL", 10, "TRAIL", trail_amount = 2.50)
+  expect_equal(ok_amt$order_type, "TRAIL", "trail by amount accepted")
+  ok_pct <- new_order("BUY", 10, "TRAIL", trail_percent = 1.5)
+  expect_equal(ok_pct$trail_percent, 1.5, "trail by percent accepted")
+})
+
+test_that("TRAIL LIMIT needs both a trail distance and a limit", {
+  expect_error(new_order("SELL", 10, "TRAIL LIMIT", trail_amount = 2),
+               "TRAIL LIMIT without lmt_price rejected")
+  ok <- new_order("SELL", 10, "TRAIL LIMIT", trail_amount = 2, lmt_price = 1900)
+  expect_equal(ok$order_type, "TRAIL LIMIT", "valid TRAIL LIMIT accepted")
+})
+
+test_that("describe_order renders trailing orders", {
+  expect_equal(describe_order(new_order("SELL", 5, "TRAIL", trail_amount = 3)),
+               "SELL 5 TRAIL trail 3 [DAY]", "TRAIL by amount")
+  expect_equal(describe_order(new_order("BUY", 5, "TRAIL", trail_percent = 2)),
+               "BUY 5 TRAIL trail 2% [DAY]", "TRAIL by percent")
+})
+
 test_that("describe_order renders each order type", {
   expect_equal(describe_order(new_order("BUY", 10, "LMT", lmt_price = 700)),
                "BUY 10 LMT @ 700 [DAY]", "LMT description")

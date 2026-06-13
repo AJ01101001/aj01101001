@@ -5,7 +5,7 @@
 # placeOrder()/cancelOrder() calls happen only against a live connection.
 
 .VALID_ACTIONS     <- c("BUY", "SELL")
-.VALID_ORDER_TYPES <- c("MKT", "LMT", "STP", "STP LMT")
+.VALID_ORDER_TYPES <- c("MKT", "LMT", "STP", "STP LMT", "TRAIL", "TRAIL LIMIT")
 .VALID_TIF         <- c("DAY", "GTC", "IOC", "OPG", "FOK", "GTD")
 
 #' Build a validated order spec.
@@ -23,24 +23,31 @@
 #' @param oca_type   OCA type (1/2/3 per IBKR semantics).
 #' @param order_ref  Free-text client tag.
 #' @param account    Optional account id (for multi-account logins).
+#' @param trail_amount  Trailing distance in price (absolute), for TRAIL /
+#'                      TRAIL LIMIT. The broker trails the stop this far behind
+#'                      the best price and triggers on a reversal of this size.
+#' @param trail_percent Trailing distance as a percent (alternative to amount).
 new_order <- function(action, quantity, order_type = "MKT",
                       lmt_price = NA_real_, aux_price = NA_real_,
+                      trail_amount = NA_real_, trail_percent = NA_real_,
                       tif = "DAY", transmit = TRUE, parent_id = 0L,
                       oca_group = "", oca_type = 0L,
                       order_ref = "", account = "") {
   spec <- list(
-    action     = toupper(trimws(action)),
-    quantity   = quantity,
-    order_type = toupper(trimws(order_type)),
-    lmt_price  = lmt_price,
-    aux_price  = aux_price,
-    tif        = toupper(trimws(tif)),
-    transmit   = transmit,
-    parent_id  = parent_id,
-    oca_group  = oca_group,
-    oca_type   = oca_type,
-    order_ref  = order_ref,
-    account    = account
+    action        = toupper(trimws(action)),
+    quantity      = quantity,
+    order_type    = toupper(trimws(order_type)),
+    lmt_price     = lmt_price,
+    aux_price     = aux_price,
+    trail_amount  = trail_amount,
+    trail_percent = trail_percent,
+    tif           = toupper(trimws(tif)),
+    transmit      = transmit,
+    parent_id     = parent_id,
+    oca_group     = oca_group,
+    oca_type      = oca_type,
+    order_ref     = order_ref,
+    account       = account
   )
   validate_order(spec)
   structure(spec, class = "ibkr_order")
@@ -63,13 +70,20 @@ validate_order <- function(spec) {
     stop(sprintf("TIF must be one of {%s}, got '%s'",
                  paste(.VALID_TIF, collapse = ", "), spec$tif))
   }
-  needs_lmt <- spec$order_type %in% c("LMT", "STP LMT")
-  needs_aux <- spec$order_type %in% c("STP", "STP LMT")
+  needs_lmt   <- spec$order_type %in% c("LMT", "STP LMT", "TRAIL LIMIT")
+  needs_aux   <- spec$order_type %in% c("STP", "STP LMT")
+  needs_trail <- spec$order_type %in% c("TRAIL", "TRAIL LIMIT")
   if (needs_lmt && !is_positive_number(spec$lmt_price)) {
     stop(sprintf("Order type '%s' requires a positive lmt_price.", spec$order_type))
   }
   if (needs_aux && !is_positive_number(spec$aux_price)) {
     stop(sprintf("Order type '%s' requires a positive aux_price (stop trigger).",
+                 spec$order_type))
+  }
+  if (needs_trail &&
+      !is_positive_number(spec$trail_amount) &&
+      !is_positive_number(spec$trail_percent)) {
+    stop(sprintf("Order type '%s' requires a positive trail_amount or trail_percent.",
                  spec$order_type))
   }
   if (!needs_lmt && is_positive_number(spec$lmt_price)) {
@@ -80,12 +94,20 @@ validate_order <- function(spec) {
 
 #' Human-readable one-line description of an order spec.
 describe_order <- function(spec) {
+  trail_txt <- if (is_positive_number(spec$trail_amount)) {
+    sprintf("%s", format(spec$trail_amount))
+  } else {
+    sprintf("%s%%", format(spec$trail_percent))
+  }
   px <- switch(spec$order_type,
-    "MKT"     = "",
-    "LMT"     = sprintf(" @ %s", format(spec$lmt_price)),
-    "STP"     = sprintf(" stop %s", format(spec$aux_price)),
-    "STP LMT" = sprintf(" stop %s lmt %s",
-                        format(spec$aux_price), format(spec$lmt_price)))
+    "MKT"         = "",
+    "LMT"         = sprintf(" @ %s", format(spec$lmt_price)),
+    "STP"         = sprintf(" stop %s", format(spec$aux_price)),
+    "STP LMT"     = sprintf(" stop %s lmt %s",
+                            format(spec$aux_price), format(spec$lmt_price)),
+    "TRAIL"       = sprintf(" trail %s", trail_txt),
+    "TRAIL LIMIT" = sprintf(" trail %s lmt %s", trail_txt, format(spec$lmt_price)),
+    "")
   sprintf("%s %d %s%s [%s]", spec$action, as.integer(spec$quantity),
           spec$order_type, px, spec$tif)
 }
@@ -105,14 +127,23 @@ to_tws_order <- function(spec, order_id) {
     stop("Package 'IBrokers' is required to place orders. ",
          "Install it with install.packages('IBrokers').")
   }
+  # For TRAIL / TRAIL LIMIT the trailing distance (absolute) rides in auxPrice;
+  # a percent trail uses the trailingPercent field instead.
+  is_trail <- spec$order_type %in% c("TRAIL", "TRAIL LIMIT")
+  aux_val  <- if (is_trail && is_positive_number(spec$trail_amount)) {
+    spec$trail_amount
+  } else {
+    spec$aux_price
+  }
+
   # IBrokers expects several numeric fields as strings.
-  IBrokers::twsOrder(
+  o <- IBrokers::twsOrder(
     orderId       = as.integer(order_id),
     action        = spec$action,
     totalQuantity = as.character(as.integer(spec$quantity)),
     orderType     = spec$order_type,
     lmtPrice      = as.character(ifelse(is.na(spec$lmt_price), "0.0", spec$lmt_price)),
-    auxPrice      = as.character(ifelse(is.na(spec$aux_price), "0.0", spec$aux_price)),
+    auxPrice      = as.character(ifelse(is.na(aux_val), "0.0", aux_val)),
     tif           = spec$tif,
     transmit      = spec$transmit,
     parentId      = as.integer(spec$parent_id),
@@ -121,6 +152,13 @@ to_tws_order <- function(spec, order_id) {
     orderRef      = spec$order_ref,
     account       = spec$account
   )
+  # Percent-based trailing. NOTE: the `trailingPercent` field's availability
+  # depends on the IBrokers version -- verify it transmits when testing live;
+  # otherwise use the absolute trail_amount, which rides in auxPrice above.
+  if (is_trail && is_positive_number(spec$trail_percent)) {
+    o$trailingPercent <- spec$trail_percent
+  }
+  o
 }
 
 # ---------------------------------------------------------------------------
