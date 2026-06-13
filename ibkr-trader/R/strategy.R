@@ -154,3 +154,76 @@ strategy_fade_range <- function(prices, anchor_n = 6, k = 2,
   }
   pos
 }
+
+# ===========================================================================
+# strategy_mirror_trail -- THE current design (see STRATEGY.md).
+#
+# One mirrored trailing-stop rule, long-only:
+#   FLAT: trailing BUY-stop trails the running low; fires when price rebounds
+#         `trail` ABOVE the lowest price seen -> go long (catch the bottom on
+#         the way up; cannot fill while still falling).
+#   LONG: trailing SELL-stop trails the running high; fires when price falls
+#         `trail` BELOW the highest price since entry -> go flat (ride the run,
+#         exit on the rollover).
+#
+# `trail` is ADAPTIVE: derived from the PRIOR day's range, wide enough to ride
+# over intraday jags (and so the ~2*trail gap between exit and re-entry damps
+# churn). Live, this maps to broker-native TRAIL orders. Flat overnight.
+#
+# @param prices        data.frame with `close` and `date`/`day`.
+# @param trail_mult    fraction of the prior day's range used as the trail.
+# @param trail_floor   minimum trail (fraction), so quiet days still have a band.
+# @param default_trail trail (fraction) on day 1 / when no prior day exists.
+# @param trail_fixed   if set, use this fixed trail fraction (ignore adaptive).
+# @return Integer target-position vector (1 = long, 0 = flat).
+# ===========================================================================
+strategy_mirror_trail <- function(prices, trail_mult = 0.25, trail_floor = 0.005,
+                                  default_trail = 0.015, trail_fixed = NA_real_) {
+  close <- prices$close
+  n <- length(close)
+  day <- if (!is.null(prices$day)) prices$day else as.Date(prices$date)
+
+  # Per-day trail fraction from the prior day's range (unless fixed).
+  udays <- unique(day)
+  trail_by_day <- numeric(length(udays))
+  names(trail_by_day) <- as.character(udays)
+  for (i in seq_along(udays)) {
+    if (!is.na(trail_fixed)) { trail_by_day[i] <- trail_fixed; next }
+    if (i == 1) { trail_by_day[i] <- default_trail; next }
+    prev <- close[day == udays[i - 1]]
+    rng_pct <- (max(prev) - min(prev)) / mean(prev)
+    trail_by_day[i] <- max(trail_floor, trail_mult * rng_pct)
+  }
+
+  pos <- integer(n)
+  in_pos <- FALSE
+  lo <- Inf    # lowest price since going flat (anchors the buy-trail)
+  hi <- -Inf   # highest price since entry      (anchors the sell-trail)
+
+  for (t in seq_len(n)) {
+    if (t == 1 || day[t] != day[t - 1]) {        # new day -> reset
+      in_pos <- FALSE; lo <- Inf; hi <- -Inf
+    }
+    last_of_day <- (t == n) || (day[min(t + 1, n)] != day[t])
+    trail <- trail_by_day[[as.character(day[t])]]
+    p <- close[t]
+    cur <- if (in_pos) 1L else 0L
+
+    if (!last_of_day) {
+      if (!in_pos) {
+        lo <- min(lo, p)
+        if (is.finite(lo) && p >= lo * (1 + trail)) {   # rebounded `trail` off the low
+          in_pos <- TRUE; hi <- p; cur <- 1L
+        } else cur <- 0L
+      } else {
+        hi <- max(hi, p)
+        if (p <= hi * (1 - trail)) {                    # pulled back `trail` off the high
+          in_pos <- FALSE; lo <- p; cur <- 0L           # re-arm buy from here
+        } else cur <- 1L
+      }
+    }
+    if (last_of_day && in_pos) { in_pos <- FALSE; cur <- 0L }   # flat overnight
+    pos[t] <- cur
+  }
+  pos
+}

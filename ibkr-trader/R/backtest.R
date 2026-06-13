@@ -61,23 +61,28 @@ run_backtest <- function(prices, target, cost_bps = 1.0) {
 #' @param bt A list from run_backtest().
 #' @return data.frame, one row per completed trade (empty if none).
 list_trades <- function(bt) {
-  pos <- bt$position
+  pos <- bt$position                       # position actually held each bar
   n <- length(pos)
   prev <- c(0, head(pos, -1))
-  entries <- which(pos != 0 & prev == 0)
-  exits   <- which(pos == 0 & prev != 0)
+  entries <- which(pos != 0 & prev == 0)   # first bar held
+  exits   <- which(pos == 0 & prev != 0)   # first bar flat again
 
   trades <- list()
   for (e in entries) {
-    x <- exits[exits > e]
-    x <- if (length(x)) x[1] else n          # still open -> mark at last bar
+    x1 <- exits[exits > e]
+    x1 <- if (length(x1)) x1[1] else n + 1L   # n+1 => still open at the end
+    # The engine lags by one: held[t] = target[t-1]. So the entry decision/fill
+    # is at bar e-1's close and the exit at the last held bar (x1-1). Reporting
+    # those keeps the trade aligned with the equity curve and never spans a day.
+    ei <- e - 1L
+    xi <- min(x1 - 1L, n)
     trades[[length(trades) + 1]] <- data.frame(
-      entry_date  = bt$date[e],
-      exit_date   = bt$date[x],
-      entry_price = bt$close[e],
-      exit_price  = bt$close[x],
-      bars_held   = x - e,
-      ret         = bt$close[x] / bt$close[e] - 1,
+      entry_date  = bt$date[ei],
+      exit_date   = bt$date[xi],
+      entry_price = bt$close[ei],
+      exit_price  = bt$close[xi],
+      bars_held   = xi - ei,
+      ret         = bt$close[xi] / bt$close[ei] - 1,
       stringsAsFactors = FALSE
     )
   }
