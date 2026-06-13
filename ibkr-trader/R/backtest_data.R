@@ -90,3 +90,44 @@ load_intraday_csv <- function(path, year = 2026) {
   validate_prices(out)
   out
 }
+
+#' Load intraday OHLC bars from a CSV (e.g. Dukascopy / Alpha Vantage exports).
+#'
+#' Expects a timestamp column plus Open/High/Low/Close and (optionally) Volume.
+#' Column names are matched loosely; the timestamp is the first column unless a
+#' column clearly named date/time/timestamp/utc/gmt is found.
+#'
+#' @param path Path to the CSV.
+#' @return data.frame(date = POSIXct, open, high, low, close, volume, day = Date).
+load_ohlc_csv <- function(path) {
+  if (!file.exists(path)) stop(sprintf("CSV not found: %s", path))
+  raw <- utils::read.csv(path, check.names = FALSE, stringsAsFactors = FALSE)
+  nm <- tolower(names(raw))
+  find1 <- function(pat) { h <- which(grepl(pat, nm)); if (length(h)) names(raw)[h[1]] else NA }
+
+  o <- find1("open"); h <- find1("high"); l <- find1("low"); c <- find1("close")
+  v <- find1("vol")
+  if (any(is.na(c(o, h, l, c)))) stop("Could not find Open/High/Low/Close columns.")
+  tcol <- find1("date|time|timestamp|utc|gmt")
+  if (is.na(tcol)) tcol <- names(raw)[1]      # fall back to the first column
+
+  ts <- trimws(as.character(raw[[tcol]]))
+  # Parse ISO-8601 (e.g. 2026-06-12T01:30:00+00:00) by taking the first 19 chars
+  # as UTC; fall back to a generic parse for other formats.
+  dt <- as.POSIXct(substr(ts, 1, 19), format = "%Y-%m-%dT%H:%M:%S", tz = "UTC")
+  if (all(is.na(dt))) dt <- as.POSIXct(ts, tz = "UTC")
+
+  out <- data.frame(
+    date   = dt,
+    open   = as.numeric(raw[[o]]),
+    high   = as.numeric(raw[[h]]),
+    low    = as.numeric(raw[[l]]),
+    close  = as.numeric(raw[[c]]),
+    volume = if (!is.na(v)) as.numeric(raw[[v]]) else NA_real_,
+    stringsAsFactors = FALSE
+  )
+  out$day <- as.Date(out$date)
+  out <- out[order(out$date), ]
+  validate_prices(out)
+  out
+}
