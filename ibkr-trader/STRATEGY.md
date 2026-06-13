@@ -53,3 +53,39 @@ on the way up. Live, we let IBKR's native TRAIL order do the trailing.
 2. **Paper-trade** with the native TRAIL orders — this runs the *real* logic, no
    simulation needed.
 3. Only then consider live capital, and only then the short-side augmentation.
+
+---
+
+# v2 — Intraday Period Model (TO TEST, not yet validated)
+
+Same mirrored trailing-stop, but the day is cut into 5 time-of-day **periods**,
+each treated as a different regime. Caps trades and adapts the trail per period.
+
+## Periods (US session, ET)
+| Period | Window | Character | Trail / behavior |
+|---|---|---|---|
+| **P1** | 09:30–09:45 | Frantic, fast-twitch | Tightest trail; grab & go |
+| **P2** | 09:45–11:15 | Momentum ("zoom") | Medium trail |
+| **P3** | 11:15–13:45 | Coherent, one sweep | **Widest trail** (don't get shaken) |
+| **P4** | 13:45–15:30 | Drifts DOWN | **No new longs** (future short zone) |
+| **P5** | 15:30–16:00 | Sleeper / surprise | **No new entries**; protect; flat by close |
+
+## Risk & sizing rules
+- **Max 3 round-trips/day.** Once hit, done for the day. (A "justifiable 4th"
+  is a future, earned exception — not the default.)
+- **P2 second entry only if the prior trade was a winner** (never re-enter after
+  a loss).
+- **Daily kill-switch:** if the day's P&L hits **−2%** (starting value), flatten
+  everything and stop trading for the day — "something's wrong, check your shit."
+- **Flat overnight, always.**
+
+## Deferred (hypotheses / need validation — do NOT hard-code from 10 days)
+- The specific per-period **biases** (P4-always-down, P3 early-gains-give-back,
+  late-P3-swoop-good) — patterns from only 10 days; test on months of data first.
+- **P1 momentum gate** ("read direction fast, GTFO if down") — refinement after
+  the structure is tested.
+- **Kelly sizing** (each day = a separate bet) — requires a *measured* edge;
+  premature now, and use *fractional* Kelly when we do. Sizing an unmeasured edge
+  is a blow-up risk.
+- **Short side** (P4 / inverse / leveraged ETFs) — augmentation after the long
+  base is proven.
