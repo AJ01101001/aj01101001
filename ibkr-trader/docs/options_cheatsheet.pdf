@@ -1,0 +1,140 @@
+%PDF-1.4
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [3 0 R] /Count 1 >>
+endobj
+3 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 5 0 R /F2 6 0 R /F3 7 0 R /F4 8 0 R >> >> /Contents 4 0 R >>
+endobj
+4 0 obj
+<< /Length 4943 >>
+stream
+BT /F2 17 Tf 40.0 760.0 Td (Options - One-Page Reference) Tj ET
+0.4 0.4 0.4 rg
+BT /F1 8.3 Tf 40.0 746.0 Td (Standard academic notation \(Hull / Black-Scholes\).  Payoffs per share; x100 for one contract.) Tj ET
+0 0 0 rg
+BT /F2 9.6 Tf 40.0 728.0 Td (Variables) Tj ET
+0.25 0.25 0.25 RG 0.7 w 40.0 725.6 m 290.0 725.6 l S
+BT /F3 7.8 Tf 40.0 715.0 Td (S       underlying price.  S0 = spot now,) Tj ET
+BT /F3 7.8 Tf 40.0 704.6 Td (        S_T = price at expiration) Tj ET
+BT /F3 7.8 Tf 40.0 694.2 Td (K       strike   \(older texts: X or E\)) Tj ET
+BT /F3 7.8 Tf 40.0 683.8 Td (c, p    European call / put premium) Tj ET
+BT /F3 7.8 Tf 40.0 673.4 Td (C, P    American call / put premium) Tj ET
+BT /F3 7.8 Tf 40.0 663.0 Td (T       time to expiry \(yrs\);  tau = T - t) Tj ET
+BT /F3 7.8 Tf 40.0 652.6 Td (r       risk-free rate \(cont. compounded\)) Tj ET
+BT /F3 7.8 Tf 40.0 642.2 Td (sigma   volatility) Tj ET
+BT /F3 7.8 Tf 40.0 631.8 Td (q, D    dividend yield / PV of dividends) Tj ET
+BT /F3 7.8 Tf 40.0 621.4 Td (N\(.\)    standard-normal CDF) Tj ET
+BT /F2 9.6 Tf 40.0 607.0 Td (Payoff at expiry  \(profit, per share\)) Tj ET
+0.25 0.25 0.25 RG 0.7 w 40.0 604.6 m 290.0 604.6 l S
+BT /F3 7.8 Tf 40.0 594.0 Td (Long call    max\(S_T - K, 0\) - c) Tj ET
+BT /F3 7.8 Tf 40.0 583.6 Td (Short call   c - max\(S_T - K, 0\)) Tj ET
+BT /F3 7.8 Tf 40.0 573.2 Td (Long put     max\(K - S_T, 0\) - p) Tj ET
+BT /F3 7.8 Tf 40.0 562.8 Td (Short put    p - max\(K - S_T, 0\)) Tj ET
+0.35 0.35 0.35 rg
+BT /F1 7.9 Tf 40.0 547.7 Td (Pattern: long = intrinsic - premium;) Tj ET
+0 0 0 rg
+0.35 0.35 0.35 rg
+BT /F1 7.9 Tf 40.0 537.3 Td (short flips the sign. Calls use S_T-K,) Tj ET
+0 0 0 rg
+0.35 0.35 0.35 rg
+BT /F1 7.9 Tf 40.0 526.9 Td (puts use K-S_T. Rigorous profit compounds) Tj ET
+0 0 0 rg
+0.35 0.35 0.35 rg
+BT /F1 7.9 Tf 40.0 516.5 Td (the premium:  ... - c * e^\(rT\).) Tj ET
+0 0 0 rg
+BT /F2 9.6 Tf 40.0 502.1 Td (Put-call parity  \(European, no div.\)) Tj ET
+0.25 0.25 0.25 RG 0.7 w 40.0 499.7 m 290.0 499.7 l S
+BT /F4 8.6 Tf 40.0 489.1 Td (c + K * e^\(-rT\)  =  p + S0) Tj ET
+0.35 0.35 0.35 rg
+BT /F1 7.9 Tf 40.0 474.0 Td (Rearranged:  c - p = S0 - K*e^\(-rT\).) Tj ET
+0 0 0 rg
+0.35 0.35 0.35 rg
+BT /F1 7.9 Tf 40.0 463.6 Td (Long call + short put at same K =) Tj ET
+0 0 0 rg
+0.35 0.35 0.35 rg
+BT /F1 7.9 Tf 40.0 453.2 Td (a synthetic forward on the stock.) Tj ET
+0 0 0 rg
+0.35 0.35 0.35 rg
+BT /F1 7.9 Tf 40.0 442.8 Td (With dividends, use S0 - D in place of S0.) Tj ET
+0 0 0 rg
+BT /F2 9.6 Tf 322.0 728.0 Td (The Box Spread  \(synthetic loan\)) Tj ET
+0.25 0.25 0.25 RG 0.7 w 322.0 725.6 m 572.0 725.6 l S
+0.2 0.2 0.2 rg
+BT /F1 7.9 Tf 322.0 715.0 Td (Pick K1 < K2, same expiry. Stack two verticals:) Tj ET
+0 0 0 rg
+BT /F1 7.9 Tf 326.0 704.6 Td (- Bull call spread: long call K1, short call K2) Tj ET
+BT /F1 7.9 Tf 326.0 694.2 Td (- Bear put spread:  long put K2,  short put K1) Tj ET
+0.2 0.2 0.2 rg
+BT /F1 7.9 Tf 322.0 679.1 Td (Combined payoff for ANY S_T:) Tj ET
+0 0 0 rg
+BT /F3 7.6 Tf 322.0 668.7 Td (  max\(S_T-K1,0\) - max\(S_T-K2,0\)) Tj ET
+BT /F3 7.6 Tf 322.0 658.3 Td (   + max\(K2-S_T,0\) - max\(K1-S_T,0\)  =  K2 - K1) Tj ET
+0.2 0.2 0.2 rg
+BT /F1 7.9 Tf 322.0 643.2 Td (S_T terms cancel -> fixed payoff = a) Tj ET
+0 0 0 rg
+0.2 0.2 0.2 rg
+BT /F1 7.9 Tf 322.0 632.8 Td (zero-coupon bond.  No-arbitrage cost today:) Tj ET
+0 0 0 rg
+BT /F4 8.2 Tf 322.0 622.4 Td (   Box value = \(K2 - K1\) * e^\(-rT\)) Tj ET
+BT /F1 7.9 Tf 326.0 607.4 Td (- Long box  \(pay now, collect K2-K1 later\)) Tj ET
+0.2 0.2 0.2 rg
+BT /F1 7.9 Tf 330.0 597.0 Td (     = LENDING at the implied rate.) Tj ET
+0 0 0 rg
+BT /F1 7.9 Tf 326.0 586.6 Td (- Short box \(collect now, pay K2-K1 later\)) Tj ET
+0.2 0.2 0.2 rg
+BT /F1 7.9 Tf 330.0 576.2 Td (     = BORROWING.) Tj ET
+0 0 0 rg
+0.2 0.2 0.2 rg
+BT /F1 7.9 Tf 322.0 561.1 Td (Keep it risk-free: European cash-settled index) Tj ET
+0 0 0 rg
+0.2 0.2 0.2 rg
+BT /F1 7.9 Tf 322.0 550.7 Td (options \(SPX/XSP\) - American can be assigned) Tj ET
+0 0 0 rg
+0.2 0.2 0.2 rg
+BT /F1 7.9 Tf 322.0 540.3 Td (early and break the box. Hold to expiry.) Tj ET
+0 0 0 rg
+BT /F2 9.6 Tf 322.0 524.9 Td (Worked examples) Tj ET
+0.25 0.25 0.25 RG 0.7 w 322.0 522.5 m 572.0 522.5 l S
+BT /F2 8.2 Tf 322.0 511.9 Td (1. Long call  -  K=100, c=4:) Tj ET
+BT /F3 7.5 Tf 322.0 501.5 Td (   S_T = 90  -> profit  -4  \(max loss = premium\)) Tj ET
+BT /F3 7.5 Tf 322.0 491.1 Td (   S_T = 104 -> profit   0  \(breakeven = K + c\)) Tj ET
+BT /F3 7.5 Tf 322.0 480.7 Td (   S_T = 115 -> profit +11) Tj ET
+BT /F2 8.2 Tf 322.0 465.6 Td (2. Box as a loan  -  K1=5000, K2=5100,) Tj ET
+BT /F2 8.2 Tf 322.0 455.2 Td (   T = 0.5 yr,  r = 5%:) Tj ET
+BT /F3 7.5 Tf 322.0 444.8 Td (   payoff   = 100  \(= $10,000/box x100\)) Tj ET
+BT /F3 7.5 Tf 322.0 434.4 Td (   fair cost= 100*e^\(-0.025\) = 97.53 \(~$9,753\)) Tj ET
+BT /F3 7.5 Tf 322.0 424.0 Td (   buy @97.0 -> lend, get 100 -> ~6.3% > 5% \(arb\)) Tj ET
+BT /F3 7.5 Tf 322.0 413.6 Td (   sell@98.0 -> borrow @ ~4.1% < 5% \(cheap loan\)) Tj ET
+endstream
+endobj
+5 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+6 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>
+endobj
+7 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Courier >>
+endobj
+8 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Courier-Bold >>
+endobj
+xref
+0 9
+0000000000 65535 f 
+0000000009 00000 n 
+0000000058 00000 n 
+0000000115 00000 n 
+0000000271 00000 n 
+0000005266 00000 n 
+0000005336 00000 n 
+0000005411 00000 n 
+0000005479 00000 n 
+trailer
+<< /Size 9 /Root 1 0 R >>
+startxref
+5552
+%%EOF
