@@ -131,3 +131,37 @@ load_ohlc_csv <- function(path) {
   validate_prices(out)
   out
 }
+
+#' Generate synthetic intraday OHLC bars across several US weekday sessions
+#' (09:30-16:00 ET, 5-min bars), for conceptual runthroughs without real data.
+#'
+#' @return data.frame(date = POSIXct ET, open, high, low, close, volume, day).
+generate_intraday_ohlc <- function(days = 10, bars_per_day = 78, mu = 0.0,
+                                    sigma = 0.45, s0 = 100, seed = NULL,
+                                    start_date = as.Date("2026-06-01")) {
+  if (!is.null(seed)) set.seed(seed)
+  dts <- as.Date(integer(0), origin = "1970-01-01"); d <- start_date
+  while (length(dts) < days) {
+    if (as.POSIXlt(d)$wday %in% 1:5) dts <- c(dts, d)
+    d <- d + 1
+  }
+  dt_bar <- (1 / 252) / bars_per_day
+  px <- s0; out <- list()
+  for (dd in dts) {
+    day <- as.Date(dd, origin = "1970-01-01")
+    base <- as.POSIXct(paste(day, "09:30"), tz = "America/New_York")
+    times <- base + (0:(bars_per_day - 1)) * 300
+    o <- h <- l <- c <- v <- numeric(bars_per_day)
+    for (b in seq_len(bars_per_day)) {
+      open <- px
+      close <- open * exp(rnorm(1, mu * dt_bar, sigma * sqrt(dt_bar)))
+      w <- abs(rnorm(1, 0, sigma * sqrt(dt_bar) * 0.6))
+      o[b] <- open; c[b] <- close
+      h[b] <- max(open, close) * (1 + w); l[b] <- min(open, close) * (1 - w)
+      v[b] <- round(runif(1, 1e4, 1e5)); px <- close
+    }
+    out[[length(out) + 1]] <- data.frame(date = times, open = o, high = h,
+                                         low = l, close = c, volume = v, day = day)
+  }
+  do.call(rbind, out)
+}

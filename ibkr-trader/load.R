@@ -14,7 +14,7 @@ local({
   files <- c("utils.R", "config.R", "contracts.R", "guardrails.R",
              "orders.R", "connection.R", "marketdata.R", "portfolio.R",
              "backtest_data.R", "strategy.R", "backtest.R", "metrics.R",
-             "pipeline.R", "live_runner.R", "backtest_ohlc.R")
+             "pipeline.R", "live_runner.R", "backtest_ohlc.R", "backtest_period.R")
   for (f in files) source(file.path(r_dir, f))
 })
 
