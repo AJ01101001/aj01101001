@@ -99,9 +99,10 @@ load_intraday_csv <- function(path, year = 2026) {
 #'
 #' @param path Path to the CSV.
 #' @return data.frame(date = POSIXct, open, high, low, close, volume, day = Date).
-load_ohlc_csv <- function(path) {
+load_ohlc_csv <- function(path, market_tz = "America/New_York") {
   if (!file.exists(path)) stop(sprintf("CSV not found: %s", path))
-  raw <- utils::read.csv(path, check.names = FALSE, stringsAsFactors = FALSE)
+  sep <- if (grepl(";", readLines(path, n = 1L))) ";" else ","   # comma or semicolon
+  raw <- utils::read.csv(path, sep = sep, check.names = FALSE, stringsAsFactors = FALSE)
   nm <- tolower(names(raw))
   find1 <- function(pat) { h <- which(grepl(pat, nm)); if (length(h)) names(raw)[h[1]] else NA }
 
@@ -112,10 +113,11 @@ load_ohlc_csv <- function(path) {
   if (is.na(tcol)) tcol <- names(raw)[1]      # fall back to the first column
 
   ts <- trimws(as.character(raw[[tcol]]))
-  # Parse ISO-8601 (e.g. 2026-06-12T01:30:00+00:00) by taking the first 19 chars
-  # as UTC; fall back to a generic parse for other formats.
+  # ISO-8601 (e.g. 2026-06-12T01:30:00+00:00) -> UTC; else "YYYY-MM-DD HH:MM:SS"
+  # in the market timezone (e.g. Twelve Data US stocks are in ET).
   dt <- as.POSIXct(substr(ts, 1, 19), format = "%Y-%m-%dT%H:%M:%S", tz = "UTC")
-  if (all(is.na(dt))) dt <- as.POSIXct(ts, tz = "UTC")
+  if (all(is.na(dt))) dt <- as.POSIXct(ts, format = "%Y-%m-%d %H:%M:%S", tz = market_tz)
+  if (all(is.na(dt))) dt <- as.POSIXct(ts, tz = market_tz)
 
   out <- data.frame(
     date   = dt,
