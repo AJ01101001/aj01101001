@@ -89,3 +89,23 @@ each treated as a different regime. Caps trades and adapts the trail per period.
   is a blow-up risk.
 - **Short side** (P4 / inverse / leveraged ETFs) — augmentation after the long
   base is proven.
+
+---
+
+# Observations from real data (SNDK — VALIDATE ACROSS NAMES before trusting)
+
+Evidence so far: the 10-day 5-min chart + 6 sessions of real 1-min (Mar 2-9).
+All ONE stock (SNDK, a parabolic momentum name) — these biases may be
+SNDK-specific. Do NOT hard-code until confirmed on other tickers.
+
+- **P4 (13:45-15:30) has a strong DOWN bias** — negative in ~5 of 6 of the 1-min
+  sessions and across the 10-day chart. Reinforces P4 = no-new-longs / the
+  short-side zone. (Aligns with a known early-afternoon drift, but the
+  consistency for SNDK is notable.)
+- **P5 (15:30-16:00) is erratic ("psycho")** — surprise moves into the close
+  (closing-auction / MOC dynamics). Reinforces P5 = no new entries, protect,
+  flat by close.
+- **P3 (11:15-13:45) looks like the bread-and-butter** — the most productive
+  period for SNDK, especially early P3. Reinforces P3 = widest trail / primary
+  money zone. NOTE: contrarian vs. the usual "midday is dead" wisdom — may be
+  SNDK's momentum character, so especially needs cross-name validation.
