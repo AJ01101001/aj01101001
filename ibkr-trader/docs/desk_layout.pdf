@@ -1,0 +1,75 @@
+%PDF-1.4
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [3 0 R] /Count 1 >>
+endobj
+3 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 792 612] /Resources << /Font << /F1 5 0 R /F2 6 0 R >> >> /Contents 4 0 R >>
+endobj
+4 0 obj
+<< /Length 3602 >>
+stream
+0 0 0 rg BT /F2 17 Tf 40.0 572.0 Td (Pro Trading Desk Layout  --  "Signal vs. Vehicle") Tj ET 0 0 0 rg
+0.35 0.35 0.35 rg BT /F1 9 Tf 40.0 556.0 Td (Workflow flows:  ANALYZE  ->  DECIDE  ->  EXECUTE  ->  CONFIRM   \(left/top = study,  right = act,  bottom = confirm\)) Tj ET 0 0 0 rg
+0.88 0.95 0.88 rg 40 320 440 210 re f
+0.3 0.34 0.42 RG 1.2 w 40 320 440 210 re S
+0 0 0 rg BT /F2 12 Tf 52.0 508.0 Td (1\)  PRIMARY CHART  --  SNDK  ·  30-min) Tj ET 0 0 0 rg
+0 0 0 rg BT /F1 9.5 Tf 52.0 492.0 Td (+ Volume + RSI) Tj ET 0 0 0 rg
+0.25 0.4 0.25 rg BT /F1 9 Tf 52.0 476.0 Td (THE SIGNAL  --  the liquid underlying, where real) Tj ET 0 0 0 rg
+0.25 0.4 0.25 rg BT /F1 9 Tf 52.0 463.0 Td (price discovery happens. You WATCH this.) Tj ET 0 0 0 rg
+0.4 0.4 0.4 rg BT /F1 8.5 Tf 52.0 360.0 Td (\(overlay SNDQ here too, to see it track / decay\)) Tj ET 0 0 0 rg
+0.88 0.92 0.98 rg 40 150 440 158 re f
+0.3 0.34 0.42 RG 1.2 w 40 150 440 158 re S
+0 0 0 rg BT /F2 12 Tf 52.0 286.0 Td (2\)  SNDQ  --  overlay on the chart, or a mini-chart) Tj ET 0 0 0 rg
+0.2 0.3 0.5 rg BT /F1 9 Tf 52.0 270.0 Td (THE VEHICLE  --  what you actually trade \(2x inverse\).) Tj ET 0 0 0 rg
+0.2 0.3 0.5 rg BT /F1 9 Tf 52.0 257.0 Td (You don't stare at it for signal -- it's a noisy mirror) Tj ET 0 0 0 rg
+0.2 0.3 0.5 rg BT /F1 9 Tf 52.0 244.0 Td (of SNDK with worse liquidity. Just watch it TRACK.) Tj ET 0 0 0 rg
+0.15 0.15 0.15 rg BT /F2 9.5 Tf 52.0 180.0 Td (--> This is the fix for your toggling: SNDK + SNDQ) Tj ET 0 0 0 rg
+0.15 0.15 0.15 rg BT /F1 9.5 Tf 52.0 167.0 Td (    BOTH always on screen, each in its right role.) Tj ET 0 0 0 rg
+0.92 0.93 0.95 rg 500 410 252 120 re f
+0.3 0.34 0.42 RG 1.2 w 500 410 252 120 re S
+0 0 0 rg BT /F2 11 Tf 512.0 508.0 Td (3\)  QUOTE DETAILS  --  SNDQ) Tj ET 0 0 0 rg
+0 0 0 rg BT /F1 9 Tf 512.0 492.0 Td (consolidated bid/ask/last, IV, volume) Tj ET 0 0 0 rg
+0.4 0.4 0.4 rg BT /F1 8.5 Tf 512.0 476.0 Td (\(the price you actually trade against\)) Tj ET 0 0 0 rg
+0.92 0.93 0.95 rg 500 280 252 120 re f
+0.3 0.34 0.42 RG 1.2 w 500 280 252 120 re S
+0 0 0 rg BT /F2 11 Tf 512.0 378.0 Td (4\)  LEVEL 2 BOOK  --  SNDQ) Tj ET 0 0 0 rg
+0 0 0 rg BT /F1 9 Tf 512.0 362.0 Td (depth -- where size rests, slippage) Tj ET 0 0 0 rg
+0.4 0.4 0.4 rg BT /F1 8.5 Tf 512.0 346.0 Td (\(thin/wide on a leveraged ETF -- mind it\)) Tj ET 0 0 0 rg
+0.99 0.95 0.85 rg 500 150 252 120 re f
+0.3 0.34 0.42 RG 1.2 w 500 150 252 120 re S
+0 0 0 rg BT /F2 11 Tf 512.0 248.0 Td (5\)  ORDER ENTRY  --  SNDQ) Tj ET 0 0 0 rg
+0 0 0 rg BT /F1 9 Tf 512.0 232.0 Td (marketable LIMIT, not market) Tj ET 0 0 0 rg
+0.4 0.4 0.4 rg BT /F1 8.5 Tf 512.0 216.0 Td (ACT right where you READ \(no eye-travel:) Tj ET 0 0 0 rg
+0.4 0.4 0.4 rg BT /F1 8.5 Tf 512.0 204.0 Td (quote + book + order stacked together\)) Tj ET 0 0 0 rg
+0.95 0.92 0.95 rg 40 55 712 82 re f
+0.3 0.34 0.42 RG 1.2 w 40 55 712 82 re S
+0 0 0 rg BT /F2 12 Tf 52.0 112.0 Td (6\)  ORDERS  ·  PENDING  ·  FILLS    \(+ day-trade counter\)) Tj ET 0 0 0 rg
+0 0 0 rg BT /F1 9 Tf 52.0 94.0 Td (Glanceable CONFIRMATION -- you should never wonder "did that fill?"  Working orders, fills, and your) Tj ET 0 0 0 rg
+0 0 0 rg BT /F1 9 Tf 52.0 80.0 Td (PDT day-trades-remaining all visible without a click.) Tj ET 0 0 0 rg
+0.2 0.2 0.2 rg BT /F2 8.5 Tf 40.0 38.0 Td (LINK ALL PANELS \(same color group\) -> one click on a symbol drives the WHOLE screen.   |   Real estate = importance \(chart is biggest\).) Tj ET 0 0 0 rg
+0.4 0.4 0.4 rg BT /F1 8.5 Tf 40.0 26.0 Td (Analytics \(GEX / options flow / vol regime\) live in the BROWSER, not here -- keep the trading screen to only what you ACT on.) Tj ET 0 0 0 rg
+endstream
+endobj
+5 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+6 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>
+endobj
+xref
+0 7
+0000000000 65535 f 
+0000000009 00000 n 
+0000000058 00000 n 
+0000000115 00000 n 
+0000000251 00000 n 
+0000003905 00000 n 
+0000003975 00000 n 
+trailer
+<< /Size 7 /Root 1 0 R >>
+startxref
+4050
+%%EOF

@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<style>
+  @page { size: Letter; margin: 12mm; }
+  * { box-sizing: border-box; }
+  body { font-family: "Liberation Sans", Arial, sans-serif; font-size: 9.2pt;
+         color: #1a1a1a; line-height: 1.32; margin: 0; }
+  h1 { font-size: 16pt; margin: 0 0 1pt 0; }
+  .sub { color: #666; font-size: 8.4pt; margin: 0 0 7pt 0; }
+  h2 { font-size: 10pt; margin: 9pt 0 3pt 0; padding-bottom: 1pt;
+       border-bottom: 1.4pt solid #333; }
+  .cols { display: flex; gap: 14px; }
+  .col { flex: 1; }
+  table { border-collapse: collapse; width: 100%; margin: 2pt 0; }
+  th, td { border: 0.6pt solid #bbb; padding: 2.2pt 4pt; text-align: left;
+           vertical-align: top; }
+  th { background: #eee; font-weight: bold; }
+  code, .f { font-family: "Liberation Mono", "Courier New", monospace; font-size: 8.8pt; }
+  .f { background: #f4f4f4; padding: 0 2pt; }
+  .note { color: #555; font-size: 8.3pt; }
+  ul { margin: 2pt 0 2pt 0; padding-left: 14px; }
+  li { margin: 1pt 0; }
+  .pay { background:#f4f4f4; padding:1pt 3pt; font-family:"Liberation Mono",monospace; }
+  .box-pay { font-family:"Liberation Mono",monospace; font-size:8.8pt; }
+  .hl { background:#fff3cd; }
+</style>
+</head>
+<body>
+
+<h1>Options &mdash; One-Page Reference</h1>
+<p class="sub">Standard academic notation (Hull / Black&ndash;Scholes). Payoffs are per share; &times;100 for one contract.</p>
+
+<div class="cols">
+  <div class="col">
+    <h2>Variables</h2>
+    <table>
+      <tr><th>Sym</th><th>Meaning</th></tr>
+      <tr><td><code>S</code></td><td>underlying price. <code>S&#8320;</code> = spot now, <code>S<sub>T</sub></code> = price at expiration</td></tr>
+      <tr><td><code>K</code></td><td><b>strike</b> (older texts: X or E)</td></tr>
+      <tr><td><code>c, p</code></td><td>European call / put premium</td></tr>
+      <tr><td><code>C, P</code></td><td>American call / put premium</td></tr>
+      <tr><td><code>T</code></td><td>time to expiry (years); <code>&tau;=T&minus;t</code></td></tr>
+      <tr><td><code>r</code></td><td>risk-free rate (cont. compounded)</td></tr>
+      <tr><td><code>&sigma;</code></td><td>volatility</td></tr>
+      <tr><td><code>q, D</code></td><td>dividend yield / PV of dividends</td></tr>
+      <tr><td><code>N(&middot;)</code></td><td>standard-normal CDF</td></tr>
+    </table>
+
+    <h2>Payoff at expiry (profit, per share)</h2>
+    <table>
+      <tr><th>Position</th><th>Profit</th></tr>
+      <tr><td>Long call</td><td class="pay">max(S<sub>T</sub>&minus;K, 0) &minus; c</td></tr>
+      <tr><td>Short call</td><td class="pay">c &minus; max(S<sub>T</sub>&minus;K, 0)</td></tr>
+      <tr><td>Long put</td><td class="pay">max(K&minus;S<sub>T</sub>, 0) &minus; p</td></tr>
+      <tr><td>Short put</td><td class="pay">p &minus; max(K&minus;S<sub>T</sub>, 0)</td></tr>
+    </table>
+    <p class="note"><b>Pattern:</b> long = <i>intrinsic</i> &minus; premium; short = flip the sign.
+    Calls use <code>S<sub>T</sub>&minus;K</code>, puts use <code>K&minus;S<sub>T</sub></code>.
+    Rigorous "profit" compounds the premium: <code>&hellip; &minus; c&middot;e<sup>rT</sup></code>.</p>
+
+    <h2>Put&ndash;call parity (European, no div.)</h2>
+    <p class="pay">c + K&middot;e<sup>&minus;rT</sup> = p + S&#8320;</p>
+    <p class="note">Rearranged: <code>c &minus; p = S&#8320; &minus; K&middot;e<sup>&minus;rT</sup></code>.
+    A long call + short put at the same K = a synthetic forward on the stock. With dividends,
+    replace <code>S&#8320;</code> with <code>S&#8320;&minus;D</code> (or <code>S&#8320;e<sup>&minus;qT</sup></code>).</p>
+  </div>
+
+  <div class="col">
+    <h2>The Box Spread (synthetic loan)</h2>
+    <p class="note">Pick <code>K&#8321; &lt; K&#8322;</code>, same expiry. Stack two verticals:</p>
+    <ul>
+      <li><b>Bull call spread:</b> long call <code>K&#8321;</code>, short call <code>K&#8322;</code></li>
+      <li><b>Bear put spread:</b> long put <code>K&#8322;</code>, short put <code>K&#8321;</code></li>
+    </ul>
+    <p class="note">Combined payoff at expiry, for <i>any</i> <code>S<sub>T</sub></code>:</p>
+    <p class="box-pay">max(S<sub>T</sub>&minus;K&#8321;,0) &minus; max(S<sub>T</sub>&minus;K&#8322;,0)<br>
+       &nbsp;&nbsp;+ max(K&#8322;&minus;S<sub>T</sub>,0) &minus; max(K&#8321;&minus;S<sub>T</sub>,0)
+       &nbsp;=&nbsp;<span class="hl"><b>K&#8322; &minus; K&#8321;</b></span></p>
+    <p class="note">The <code>S<sub>T</sub></code> terms cancel &rarr; a fixed payoff = a zero-coupon bond.
+    No-arbitrage cost today:</p>
+    <p class="pay">Box value = (K&#8322; &minus; K&#8321;)&middot;e<sup>&minus;rT</sup></p>
+    <ul>
+      <li><b>Long box</b> (pay debit, collect <code>K&#8322;&minus;K&#8321;</code> later) = <b>lending</b> at the implied rate.</li>
+      <li><b>Short box</b> (collect credit now, pay <code>K&#8322;&minus;K&#8321;</code> later) = <b>borrowing</b>.</li>
+    </ul>
+    <p class="note"><b>Keep it risk-free:</b> use European, cash-settled index options (SPX/XSP) &mdash;
+    American options can be assigned early and break the box. Hold to expiry.</p>
+
+    <h2>Worked examples</h2>
+    <p class="note"><b>1. Long call</b> &mdash; <code>K=100, c=4</code>:</p>
+    <table>
+      <tr><th>S<sub>T</sub></th><th>max(S<sub>T</sub>&minus;100,0)</th><th>&minus; c</th><th>Profit</th></tr>
+      <tr><td>90</td><td>0</td><td>&minus;4</td><td>&minus;4 (max loss = premium)</td></tr>
+      <tr><td>104</td><td>4</td><td>&minus;4</td><td>0 (breakeven = K+c)</td></tr>
+      <tr><td>115</td><td>15</td><td>&minus;4</td><td>+11</td></tr>
+    </table>
+
+    <p class="note"><b>2. Box as a loan</b> &mdash; <code>K&#8321;=5000, K&#8322;=5100,
+       T=0.5 yr, r=5%</code>:</p>
+    <ul>
+      <li>Guaranteed payoff = <code>5100&minus;5000 = 100</code> (= $10,000 / box &times;100).</li>
+      <li>Fair cost = <code>100&middot;e<sup>&minus;0.05&times;0.5</sup> = 97.53</code> (&asymp; $9,753).</li>
+      <li>If you can <b>buy</b> (long) it for <code>97.0</code>: you lend $9,700, get $10,000 in 6 mo
+          &rarr; implied yield <code>&asymp; 6.3%</code> &gt; 5% &rArr; arb (lend above market).</li>
+      <li>If you <b>sell</b> (short) it for <code>98.0</code>: you borrow $9,800, repay $10,000
+          &rarr; implied cost <code>&asymp; 4.1%</code> &lt; 5% &rArr; cheap financing.</li>
+    </ul>
+  </div>
+</div>
+
+</body>
+</html>
